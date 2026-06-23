@@ -1,0 +1,428 @@
+import React, { useState, useEffect, useCallback } from 'react';
+import { useAuth } from '../context/AuthContext';
+import { api } from '../api';
+
+function Navbar({ user, onLogout }) {
+  return (
+    <nav className="navbar">
+      <div className="navbar-brand">📍 Staff <span>Attendance</span></div>
+      <div className="navbar-right">
+        <span className="navbar-user">{user.name}</span>
+        <span className="navbar-role">Manager</span>
+        <button className="btn btn-ghost btn-sm" onClick={onLogout}>Logout</button>
+      </div>
+    </nav>
+  );
+}
+
+function Modal({ title, onClose, children }) {
+  return (
+    <div className="modal-overlay" onClick={e => e.target === e.currentTarget && onClose()}>
+      <div className="modal">
+        <h3 className="modal-title">{title}</h3>
+        {children}
+      </div>
+    </div>
+  );
+}
+
+// ── MY OEs ────────────────────────────────────────────────────────────────────
+function MyOEs({ stores }) {
+  const [oes, setOes] = useState([]);
+  const [showAdd, setShowAdd] = useState(false);
+  const [editItem, setEditItem] = useState(null);
+  const [form, setForm] = useState({ name: '', email: '', password: '', store_id: '' });
+  const [error, setError] = useState('');
+  const [success, setSuccess] = useState('');
+
+  const load = useCallback(async () => {
+    const data = await api.get('/api/manager/oes').catch(() => []);
+    setOes(data || []);
+  }, []);
+
+  useEffect(() => { load(); }, [load]);
+
+  function openAdd() { setForm({ name: '', email: '', password: '', store_id: '' }); setError(''); setEditItem(null); setShowAdd(true); }
+  function openEdit(o) { setForm({ name: o.name, email: o.email, password: '', store_id: o.store_id || '' }); setError(''); setEditItem(o); setShowAdd(true); }
+
+  async function handleSave() {
+    setError('');
+    try {
+      if (editItem) {
+        const body = { name: form.name, email: form.email, store_id: form.store_id || null };
+        if (form.password) body.password = form.password;
+        await api.put(`/api/manager/oes/${editItem.id}`, body);
+      } else {
+        if (!form.name || !form.email || !form.password) { setError('Name, email, password required'); return; }
+        await api.post('/api/manager/oes', { ...form, store_id: form.store_id || null });
+      }
+      setShowAdd(false); setSuccess(editItem ? 'OE updated' : 'OE added'); load();
+      setTimeout(() => setSuccess(''), 3000);
+    } catch (e) { setError(e.message); }
+  }
+
+  async function toggleActive(o) {
+    await api.put(`/api/manager/oes/${o.id}`, { is_active: o.is_active ? 0 : 1 });
+    load();
+  }
+
+  return (
+    <div>
+      {success && <div className="alert alert-success">{success}</div>}
+      <div className="section-header">
+        <div className="section-title">My Operation Executives ({oes.length}/200)</div>
+        <button className="btn btn-primary" onClick={openAdd}>+ Add OE</button>
+      </div>
+      <div className="card">
+        <div className="table-wrap">
+          <table>
+            <thead><tr><th>Name</th><th>Email</th><th>Store</th><th>Status</th><th>Actions</th></tr></thead>
+            <tbody>{oes.map(o => (
+              <tr key={o.id}>
+                <td className="primary">{o.name}</td>
+                <td>{o.email}</td>
+                <td>{o.store_code || <span className="badge badge-yellow">Not Assigned</span>}</td>
+                <td><span className={`badge ${o.is_active ? 'badge-green' : 'badge-red'}`}>{o.is_active ? 'Active' : 'Inactive'}</span></td>
+                <td>
+                  <div className="flex gap-2">
+                    <button className="btn btn-ghost btn-sm" onClick={() => openEdit(o)}>Edit</button>
+                    <button className={`btn btn-sm ${o.is_active ? 'btn-danger' : 'btn-success'}`} onClick={() => toggleActive(o)}>
+                      {o.is_active ? 'Deactivate' : 'Activate'}
+                    </button>
+                  </div>
+                </td>
+              </tr>
+            ))}</tbody>
+          </table>
+          {oes.length === 0 && <p className="text-muted" style={{ padding: 20 }}>No OEs yet. Add your first OE.</p>}
+        </div>
+      </div>
+
+      {showAdd && (
+        <Modal title={editItem ? 'Edit OE' : 'Add Operation Executive'} onClose={() => setShowAdd(false)}>
+          {error && <div className="alert alert-error">{error}</div>}
+          <div className="form-group"><label className="form-label">Full Name</label>
+            <input className="form-input" value={form.name} onChange={e => setForm(f => ({ ...f, name: e.target.value }))} /></div>
+          <div className="form-group"><label className="form-label">Email</label>
+            <input type="email" className="form-input" value={form.email} onChange={e => setForm(f => ({ ...f, email: e.target.value }))} /></div>
+          <div className="form-group"><label className="form-label">{editItem ? 'New Password (leave blank)' : 'Password'}</label>
+            <input type="password" className="form-input" value={form.password} onChange={e => setForm(f => ({ ...f, password: e.target.value }))} /></div>
+          <div className="form-group"><label className="form-label">Assign Store</label>
+            <select className="form-input" value={form.store_id} onChange={e => setForm(f => ({ ...f, store_id: e.target.value }))}>
+              <option value="">-- No Store --</option>
+              {stores.map(s => <option key={s.id} value={s.id}>{s.store_code} {s.name ? `– ${s.name}` : ''}</option>)}
+            </select>
+          </div>
+          <div className="modal-footer">
+            <button className="btn btn-ghost" onClick={() => setShowAdd(false)}>Cancel</button>
+            <button className="btn btn-primary" onClick={handleSave}>{editItem ? 'Save Changes' : 'Add OE'}</button>
+          </div>
+        </Modal>
+      )}
+    </div>
+  );
+}
+
+// ── STORES ────────────────────────────────────────────────────────────────────
+function Stores({ onStoresChange }) {
+  const [stores, setStores] = useState([]);
+  const [showAdd, setShowAdd] = useState(false);
+  const [editItem, setEditItem] = useState(null);
+  const [form, setForm] = useState({ store_code: '', name: '', latitude: '', longitude: '', radius_meters: '100' });
+  const [error, setError] = useState('');
+  const [success, setSuccess] = useState('');
+
+  const load = useCallback(async () => {
+    const data = await api.get('/api/manager/stores').catch(() => []);
+    const s = data || [];
+    setStores(s);
+    if (onStoresChange) onStoresChange(s);
+  }, [onStoresChange]);
+
+  useEffect(() => { load(); }, [load]);
+
+  function openAdd() { setForm({ store_code: '', name: '', latitude: '', longitude: '', radius_meters: '100' }); setError(''); setEditItem(null); setShowAdd(true); }
+  function openEdit(s) { setForm({ store_code: s.store_code, name: s.name || '', latitude: String(s.latitude), longitude: String(s.longitude), radius_meters: String(s.radius_meters) }); setError(''); setEditItem(s); setShowAdd(true); }
+
+  async function handleSave() {
+    setError('');
+    try {
+      if (editItem) {
+        await api.put(`/api/manager/stores/${editItem.id}`, { ...form, latitude: parseFloat(form.latitude), longitude: parseFloat(form.longitude), radius_meters: parseInt(form.radius_meters) });
+      } else {
+        if (!form.store_code || !form.latitude || !form.longitude) { setError('Store code, latitude, longitude required'); return; }
+        await api.post('/api/manager/stores', { ...form, latitude: parseFloat(form.latitude), longitude: parseFloat(form.longitude), radius_meters: parseInt(form.radius_meters) || 100 });
+      }
+      setShowAdd(false); setSuccess(editItem ? 'Store updated' : 'Store added'); load();
+      setTimeout(() => setSuccess(''), 3000);
+    } catch (e) { setError(e.message); }
+  }
+
+  async function handleDelete(id) {
+    if (!confirm('Delete this store?')) return;
+    await api.delete(`/api/manager/stores/${id}`);
+    load();
+  }
+
+  return (
+    <div>
+      {success && <div className="alert alert-success">{success}</div>}
+      <div className="section-header">
+        <div className="section-title">Stores ({stores.length})</div>
+        <button className="btn btn-primary" onClick={openAdd}>+ Add Store</button>
+      </div>
+      <div className="alert alert-info" style={{ marginBottom: 16 }}>
+        To find coordinates: Open Google Maps, right-click your store location → "What's here?" to copy latitude & longitude.
+      </div>
+      <div className="card">
+        <div className="table-wrap">
+          <table>
+            <thead><tr><th>Code</th><th>Name</th><th>Latitude</th><th>Longitude</th><th>Radius</th><th>Actions</th></tr></thead>
+            <tbody>{stores.map(s => (
+              <tr key={s.id}>
+                <td className="primary">{s.store_code}</td>
+                <td>{s.name || '—'}</td>
+                <td>{s.latitude}</td>
+                <td>{s.longitude}</td>
+                <td><span className="badge badge-blue">{s.radius_meters}m</span></td>
+                <td>
+                  <div className="flex gap-2">
+                    <button className="btn btn-ghost btn-sm" onClick={() => openEdit(s)}>Edit</button>
+                    <button className="btn btn-danger btn-sm" onClick={() => handleDelete(s.id)}>Delete</button>
+                  </div>
+                </td>
+              </tr>
+            ))}</tbody>
+          </table>
+          {stores.length === 0 && <p className="text-muted" style={{ padding: 20 }}>No stores yet. Add your first store.</p>}
+        </div>
+      </div>
+
+      {showAdd && (
+        <Modal title={editItem ? 'Edit Store' : 'Add Store'} onClose={() => setShowAdd(false)}>
+          {error && <div className="alert alert-error">{error}</div>}
+          <div className="form-row">
+            <div className="form-group"><label className="form-label">Store Code *</label>
+              <input className="form-input" placeholder="e.g. STR001" value={form.store_code} onChange={e => setForm(f => ({ ...f, store_code: e.target.value }))} /></div>
+            <div className="form-group"><label className="form-label">Store Name</label>
+              <input className="form-input" placeholder="e.g. Main Branch" value={form.name} onChange={e => setForm(f => ({ ...f, name: e.target.value }))} /></div>
+          </div>
+          <div className="form-row">
+            <div className="form-group"><label className="form-label">Latitude *</label>
+              <input type="number" step="any" className="form-input" placeholder="e.g. 12.971599" value={form.latitude} onChange={e => setForm(f => ({ ...f, latitude: e.target.value }))} /></div>
+            <div className="form-group"><label className="form-label">Longitude *</label>
+              <input type="number" step="any" className="form-input" placeholder="e.g. 77.594566" value={form.longitude} onChange={e => setForm(f => ({ ...f, longitude: e.target.value }))} /></div>
+          </div>
+          <div className="form-group">
+            <label className="form-label">Check-In Radius (meters) — Staff must be within this distance to check in</label>
+            <input type="number" className="form-input" placeholder="100" value={form.radius_meters} onChange={e => setForm(f => ({ ...f, radius_meters: e.target.value }))} />
+          </div>
+          <div className="modal-footer">
+            <button className="btn btn-ghost" onClick={() => setShowAdd(false)}>Cancel</button>
+            <button className="btn btn-primary" onClick={handleSave}>{editItem ? 'Save' : 'Add Store'}</button>
+          </div>
+        </Modal>
+      )}
+    </div>
+  );
+}
+
+// ── ROSTER ────────────────────────────────────────────────────────────────────
+function Roster({ stores }) {
+  const today = new Date().toISOString().split('T')[0];
+  const [date, setDate] = useState(today);
+  const [oes, setOes] = useState([]);
+  const [roster, setRoster] = useState([]);
+  const [saving, setSaving] = useState({});
+  const [success, setSuccess] = useState('');
+  const [forms, setForms] = useState({});
+
+  useEffect(() => {
+    api.get('/api/manager/oes').then(d => setOes(d || [])).catch(() => {});
+  }, []);
+
+  const loadRoster = useCallback(async () => {
+    const data = await api.get(`/api/manager/roster?from=${date}&to=${date}`).catch(() => []);
+    const r = data || [];
+    setRoster(r);
+    const f = {};
+    r.forEach(item => { f[item.oe_id] = { shift_start: item.shift_start || '', shift_end: item.shift_end || '', store_id: item.store_id || '', notes: item.notes || '' }; });
+    setForms(f);
+  }, [date]);
+
+  useEffect(() => { loadRoster(); }, [loadRoster]);
+
+  function getForm(oeId) {
+    return forms[oeId] || { shift_start: '', shift_end: '', store_id: '', notes: '' };
+  }
+
+  function updateForm(oeId, key, val) {
+    setForms(f => ({ ...f, [oeId]: { ...getForm(oeId), [key]: val } }));
+  }
+
+  async function saveRow(oeId) {
+    setSaving(s => ({ ...s, [oeId]: true }));
+    try {
+      const f = getForm(oeId);
+      await api.post('/api/manager/roster', { oe_id: oeId, date, ...f, store_id: f.store_id || null });
+      setSuccess('Saved'); setTimeout(() => setSuccess(''), 2000);
+      loadRoster();
+    } catch (e) { alert(e.message); }
+    setSaving(s => ({ ...s, [oeId]: false }));
+  }
+
+  return (
+    <div>
+      {success && <div className="alert alert-success">{success}</div>}
+      <div className="section-header">
+        <div className="section-title">Roster Management</div>
+        <div className="flex gap-2 align-center">
+          <label className="form-label" style={{ margin: 0 }}>Date:</label>
+          <input type="date" className="form-input" style={{ width: 160 }} value={date} onChange={e => setDate(e.target.value)} />
+        </div>
+      </div>
+      <div className="card">
+        {oes.length === 0
+          ? <p className="text-muted">No OEs. Add OEs first.</p>
+          : (
+            <div className="table-wrap">
+              <table>
+                <thead><tr>
+                  <th>OE Name</th><th>Shift Start</th><th>Shift End</th><th>Store</th><th>Notes</th><th>Action</th>
+                </tr></thead>
+                <tbody>{oes.filter(o => o.is_active).map(o => {
+                  const f = getForm(o.id);
+                  return (
+                    <tr key={o.id}>
+                      <td className="primary">{o.name}</td>
+                      <td><input type="time" className="form-input" style={{ minWidth: 110 }} value={f.shift_start} onChange={e => updateForm(o.id, 'shift_start', e.target.value)} /></td>
+                      <td><input type="time" className="form-input" style={{ minWidth: 110 }} value={f.shift_end} onChange={e => updateForm(o.id, 'shift_end', e.target.value)} /></td>
+                      <td>
+                        <select className="form-input" style={{ minWidth: 130 }} value={f.store_id} onChange={e => updateForm(o.id, 'store_id', e.target.value)}>
+                          <option value="">Default</option>
+                          {stores.map(s => <option key={s.id} value={s.id}>{s.store_code}</option>)}
+                        </select>
+                      </td>
+                      <td><input className="form-input" placeholder="Notes..." value={f.notes} onChange={e => updateForm(o.id, 'notes', e.target.value)} /></td>
+                      <td><button className="btn btn-primary btn-sm" onClick={() => saveRow(o.id)} disabled={saving[o.id]}>Save</button></td>
+                    </tr>
+                  );
+                })}</tbody>
+              </table>
+            </div>
+          )}
+      </div>
+    </div>
+  );
+}
+
+// ── REPORTS ───────────────────────────────────────────────────────────────────
+function ManagerReports({ oes }) {
+  const today = new Date().toISOString().split('T')[0];
+  const [from, setFrom] = useState(today);
+  const [to, setTo] = useState(today);
+  const [oeId, setOeId] = useState('');
+  const [rows, setRows] = useState(null);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState('');
+
+  async function viewData() {
+    setLoading(true); setError(''); setRows(null);
+    try {
+      const q = new URLSearchParams({ from, to });
+      if (oeId) q.set('oe_id', oeId);
+      const data = await api.get(`/api/manager/attendance?${q}`);
+      setRows(data);
+    } catch (e) { setError(e.message); } finally { setLoading(false); }
+  }
+
+  async function download() {
+    setError('');
+    try {
+      const q = new URLSearchParams({ from, to, format: 'csv' });
+      if (oeId) q.set('oe_id', oeId);
+      await api.download(`/api/manager/attendance?${q}`);
+    } catch (e) { setError(e.message); }
+  }
+
+  return (
+    <div>
+      <div className="section-title" style={{ marginBottom: 16 }}>Attendance Reports</div>
+      {error && <div className="alert alert-error">{error}</div>}
+      <div className="card" style={{ marginBottom: 20 }}>
+        <div className="form-row-3">
+          <div className="form-group"><label className="form-label">From Date</label>
+            <input type="date" className="form-input" value={from} onChange={e => setFrom(e.target.value)} /></div>
+          <div className="form-group"><label className="form-label">To Date</label>
+            <input type="date" className="form-input" value={to} onChange={e => setTo(e.target.value)} /></div>
+          <div className="form-group"><label className="form-label">OE (Optional)</label>
+            <select className="form-input" value={oeId} onChange={e => setOeId(e.target.value)}>
+              <option value="">All OEs</option>
+              {oes.map(o => <option key={o.id} value={o.id}>{o.name}</option>)}
+            </select>
+          </div>
+        </div>
+        <div className="flex gap-2" style={{ marginTop: 8 }}>
+          <button className="btn btn-primary" onClick={viewData} disabled={loading}>{loading ? 'Loading...' : 'View Report'}</button>
+          <button className="btn btn-success" onClick={download}>⬇ Download CSV</button>
+        </div>
+      </div>
+
+      {rows && (
+        <div className="card">
+          <p className="text-muted text-sm" style={{ marginBottom: 12 }}>{rows.length} records</p>
+          <div className="table-wrap">
+            <table>
+              <thead><tr>
+                <th>Date</th><th>OE Name</th><th>Store</th><th>Check In</th><th>Check Out</th><th>Distance</th>
+              </tr></thead>
+              <tbody>{rows.map(r => (
+                <tr key={r.id}>
+                  <td className="primary">{r.date}</td>
+                  <td>{r.oe_name}</td>
+                  <td>{r.store_code || '—'}</td>
+                  <td style={{ color: 'var(--green)' }}>{r.check_in_time ? r.check_in_time.replace('T',' ').slice(0,19) : '—'}</td>
+                  <td style={{ color: 'var(--yellow)' }}>{r.check_out_time ? r.check_out_time.replace('T',' ').slice(0,19) : '—'}</td>
+                  <td>{r.check_in_distance != null ? Math.round(r.check_in_distance) + 'm' : '—'}</td>
+                </tr>
+              ))}</tbody>
+            </table>
+            {rows.length === 0 && <p className="text-muted" style={{ padding: 20 }}>No records for this period.</p>}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ── MAIN ──────────────────────────────────────────────────────────────────────
+const TABS = ['My OEs', 'Stores', 'Roster', 'Reports'];
+
+export default function ManagerDashboard() {
+  const { user, logout } = useAuth();
+  const [tab, setTab] = useState('My OEs');
+  const [stores, setStores] = useState([]);
+  const [oes, setOes] = useState([]);
+
+  useEffect(() => {
+    api.get('/api/manager/stores').then(d => setStores(d || [])).catch(() => {});
+    api.get('/api/manager/oes').then(d => setOes(d || [])).catch(() => {});
+  }, []);
+
+  return (
+    <div className="app">
+      <Navbar user={user} onLogout={logout} />
+      <div className="main">
+        <div className="tabs">
+          {TABS.map(t => (
+            <button key={t} className={`tab ${tab === t ? 'active' : ''}`} onClick={() => setTab(t)}>{t}</button>
+          ))}
+        </div>
+        {tab === 'My OEs' && <MyOEs stores={stores} />}
+        {tab === 'Stores' && <Stores onStoresChange={setStores} />}
+        {tab === 'Roster' && <Roster stores={stores} />}
+        {tab === 'Reports' && <ManagerReports oes={oes} />}
+      </div>
+    </div>
+  );
+}
