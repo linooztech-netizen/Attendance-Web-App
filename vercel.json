@@ -7,7 +7,7 @@
     },
     "backend": {
       "root": "backend",
-      "routePrefix": "/api"
+      "routePrefix": "/_/backend"
     }
   }
 }
