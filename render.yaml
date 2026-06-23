@@ -1,0 +1,20 @@
+services:
+  - type: web
+    name: staff-attendance
+    runtime: node
+    rootDir: backend
+    buildCommand: npm install && cd ../frontend && npm install && npm run build
+    startCommand: node server.js
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: JWT_SECRET
+        generateValue: true
+      - key: ADMIN_EMAIL
+        value: mail2linooz@gmail.com
+      - key: ADMIN_PASSWORD
+        value: Admin@123
+    disk:
+      name: db
+      mountPath: /opt/render/project/src/backend
+      sizeGB: 1
