@@ -1,8 +1,10 @@
+const BASE = import.meta.env.PROD ? '/_/backend' : '';
+
 const getToken = () => localStorage.getItem('token');
 
 async function request(method, path, body) {
   const token = getToken();
-  const res = await fetch(path, {
+  const res = await fetch(BASE + path, {
     method,
     headers: {
       'Content-Type': 'application/json',
@@ -30,7 +32,7 @@ export const api = {
 
   download: async (path) => {
     const token = getToken();
-    const res = await fetch(path, {
+    const res = await fetch(BASE + path, {
       headers: token ? { Authorization: `Bearer ${token}` } : {}
     });
     if (!res.ok) {
