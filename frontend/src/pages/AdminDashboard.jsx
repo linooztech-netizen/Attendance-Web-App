@@ -5,7 +5,22 @@ import { api } from '../api';
 function Navbar({ user, onLogout }) {
   return (
     <nav className="navbar">
-      <div className="navbar-brand">🕐 Employee <span>Attendance</span></div>
+      <div className="navbar-brand" style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+        <svg width="28" height="34" viewBox="0 0 100 120" fill="none" xmlns="http://www.w3.org/2000/svg">
+          <rect x="4" y="4" width="92" height="112" rx="12" fill="#1a1a1a" stroke="#f97316" strokeWidth="6"/>
+          <rect x="14" y="14" width="72" height="46" rx="6" fill="#0d0d0d" stroke="#f97316" strokeWidth="4"/>
+          <circle cx="50" cy="37" r="11" fill="#f97316"/>
+          <polyline points="43,37 48,43 57,30" stroke="white" strokeWidth="7" strokeLinecap="round" strokeLinejoin="round"/>
+          <circle cx="32" cy="68" r="5" fill="#f97316"/>
+          <circle cx="50" cy="68" r="5" fill="#f97316" fillOpacity="0.4"/>
+          <circle cx="68" cy="68" r="5" fill="#f97316" fillOpacity="0.2"/>
+          <rect x="18" y="78" width="64" height="36" rx="8" fill="#0d0d0d" stroke="#f97316" strokeWidth="4"/>
+          <path d="M50 110 C41 110 34 103 34 94 C34 85 41 78 50 78" stroke="#f97316" strokeWidth="4" strokeLinecap="round" fill="none"/>
+          <path d="M50 104 C43 104 38 99 38 94 C38 89 43 84 50 84" stroke="#f97316" strokeWidth="4" strokeLinecap="round" fill="none"/>
+          <path d="M50 98 C45 98 42 96 42 94 C42 92 45 90 50 90" stroke="#f97316" strokeWidth="4" strokeLinecap="round" fill="none"/>
+        </svg>
+        Employee <span>Attendance</span>
+      </div>
       <div className="navbar-right">
         <span className="navbar-user">{user.name}</span>
         <span className="navbar-role">Admin</span>

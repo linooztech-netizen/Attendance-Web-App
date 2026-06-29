@@ -15,8 +15,10 @@ export default function MapPicker({ lat, lng, radius, onChange }) {
     const zoom = lat ? 15 : 10;
 
     const map = L.map(containerRef.current).setView([initLat, initLng], zoom);
-    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-      attribution: '© OpenStreetMap contributors'
+    L.tileLayer('https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png', {
+      attribution: '© OpenStreetMap © CARTO',
+      subdomains: 'abcd',
+      maxZoom: 20
     }).addTo(map);
 
     let marker = null;
