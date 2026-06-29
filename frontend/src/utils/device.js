@@ -15,7 +15,7 @@ export function getDeviceFingerprint() {
     hash = ((hash << 5) - hash) + data.charCodeAt(i);
     hash |= 0;
   }
-  fp = Math.abs(hash).toString(36) + '-' + Math.random().toString(36).slice(2, 8);
+  fp = Math.abs(hash).toString(36);
   localStorage.setItem('device_fp', fp);
   return fp;
 }
