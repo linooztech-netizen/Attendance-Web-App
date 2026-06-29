@@ -55,6 +55,14 @@ CREATE TABLE IF NOT EXISTS roster (
   UNIQUE (oe_id, date)
 );
 
+-- Migration: multi-store support
+CREATE TABLE IF NOT EXISTS oe_stores (
+  id         BIGSERIAL PRIMARY KEY,
+  oe_id      BIGINT NOT NULL REFERENCES users(id),
+  store_id   BIGINT NOT NULL REFERENCES stores(id),
+  UNIQUE (oe_id, store_id)
+);
+
 -- Migration: add day_type to existing roster table
 ALTER TABLE roster ADD COLUMN IF NOT EXISTS day_type TEXT DEFAULT 'normal';
 

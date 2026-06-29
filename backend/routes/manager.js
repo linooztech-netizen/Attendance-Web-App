@@ -65,6 +65,43 @@ router.put('/oes/:id', async (req, res) => {
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
+// OE store assignments (multi-store)
+router.get('/oes/:id/stores', async (req, res) => {
+  try {
+    const stores = await db.all(`
+      SELECT DISTINCT s.id, s.store_code, s.name, s.radius_meters
+      FROM stores s
+      WHERE s.id IN (
+        SELECT store_id FROM oe_stores WHERE oe_id = $1
+        UNION
+        SELECT store_id FROM users WHERE id = $1 AND store_id IS NOT NULL
+      )
+      ORDER BY s.store_code
+    `, [req.params.id]);
+    res.json(stores);
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+router.post('/oes/:id/stores', async (req, res) => {
+  try {
+    const { store_id } = req.body;
+    if (!store_id) return res.status(400).json({ error: 'store_id required' });
+    await db.run(
+      'INSERT INTO oe_stores (oe_id, store_id) VALUES ($1, $2) ON CONFLICT DO NOTHING',
+      [req.params.id, store_id]
+    );
+    res.json({ message: 'Store assigned' });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+router.delete('/oes/:id/stores/:storeId', async (req, res) => {
+  try {
+    await db.run('DELETE FROM oe_stores WHERE oe_id=$1 AND store_id=$2', [req.params.id, req.params.storeId]);
+    await db.run('UPDATE users SET store_id=NULL WHERE id=$1 AND store_id=$2', [req.params.id, req.params.storeId]);
+    res.json({ message: 'Store removed' });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
 // Reset OE device
 router.delete('/oes/:id/device', async (req, res) => {
   try {

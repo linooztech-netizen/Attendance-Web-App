@@ -101,11 +101,37 @@ function MyOEs({ stores }) {
 
   async function saveDevice() {
     try {
-      await api.put(`/api/manager/oes/${deviceModal.id}`, { device_name: deviceForm.device_name, phone_number: deviceForm.phone_number });
+      await api.put(`/api/manager/oes/${deviceModal.id}`, { device_name: deviceForm.device_name });
       setDeviceModal(null);
       setSuccess('Device info saved');
       setTimeout(() => setSuccess(''), 3000);
       load();
+    } catch (e) { setError(e.message); }
+  }
+
+  const [storesModal, setStoresModal] = useState(null);
+  const [oeStores, setOeStores] = useState([]);
+
+  async function openStoresModal(o) {
+    setStoresModal(o);
+    const data = await api.get(`/api/manager/oes/${o.id}/stores`).catch(() => []);
+    setOeStores(data || []);
+  }
+
+  async function addStoreToOE(storeId) {
+    try {
+      await api.post(`/api/manager/oes/${storesModal.id}/stores`, { store_id: storeId });
+      const data = await api.get(`/api/manager/oes/${storesModal.id}/stores`).catch(() => []);
+      setOeStores(data || []);
+      setSuccess('Store assigned'); setTimeout(() => setSuccess(''), 2000);
+    } catch (e) { setError(e.message); }
+  }
+
+  async function removeStoreFromOE(storeId) {
+    try {
+      await api.delete(`/api/manager/oes/${storesModal.id}/stores/${storeId}`);
+      const data = await api.get(`/api/manager/oes/${storesModal.id}/stores`).catch(() => []);
+      setOeStores(data || []);
     } catch (e) { setError(e.message); }
   }
 
@@ -135,7 +161,8 @@ function MyOEs({ stores }) {
                 <td>
                   <div className="flex gap-2" style={{ flexWrap: 'wrap' }}>
                     <button className="btn btn-ghost btn-sm" onClick={() => openEdit(o)}>Edit</button>
-                    <button className="btn btn-ghost btn-sm" onClick={() => openDeviceModal(o)}>📱 Device Info</button>
+                    <button className="btn btn-ghost btn-sm" onClick={() => openStoresModal(o)}>Stores</button>
+                    <button className="btn btn-ghost btn-sm" onClick={() => openDeviceModal(o)}>📱 Device</button>
                     {o.device_fingerprint && (
                       <button className="btn btn-ghost btn-sm" onClick={() => resetDevice(o)}>🔄 Reset</button>
                     )}
@@ -164,6 +191,36 @@ function MyOEs({ stores }) {
           <div className="modal-footer">
             <button className="btn btn-ghost" onClick={() => setDeviceModal(null)}>Cancel</button>
             <button className="btn btn-primary" onClick={saveDevice}>Save</button>
+          </div>
+        </Modal>
+      )}
+
+      {storesModal && (
+        <Modal title={`Assign Stores — ${storesModal.name}`} onClose={() => setStoresModal(null)} wide>
+          <p className="text-muted text-sm" style={{ marginBottom: 12 }}>OE can check in to any assigned store. They must be within the store's GPS radius.</p>
+          <div style={{ marginBottom: 16 }}>
+            <div className="form-label" style={{ marginBottom: 8 }}>Assigned Stores</div>
+            {oeStores.length === 0
+              ? <p className="text-muted text-sm">No stores assigned yet.</p>
+              : oeStores.map(s => (
+                <div key={s.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '8px 0', borderBottom: '1px solid var(--border)' }}>
+                  <span style={{ fontWeight: 600 }}>{s.store_code}{s.name ? ` — ${s.name}` : ''} <span className="text-muted text-sm">({s.radius_meters}m)</span></span>
+                  <button className="btn btn-danger btn-sm" onClick={() => removeStoreFromOE(s.id)}>Remove</button>
+                </div>
+              ))
+            }
+          </div>
+          <div className="form-group">
+            <label className="form-label">Add Store</label>
+            <select className="form-input" defaultValue="" onChange={e => { if (e.target.value) addStoreToOE(e.target.value); e.target.value = ''; }}>
+              <option value="">-- Select store to add --</option>
+              {stores.filter(s => !oeStores.find(os => os.id === s.id)).map(s => (
+                <option key={s.id} value={s.id}>{s.store_code}{s.name ? ` — ${s.name}` : ''}</option>
+              ))}
+            </select>
+          </div>
+          <div className="modal-footer">
+            <button className="btn btn-primary" onClick={() => setStoresModal(null)}>Done</button>
           </div>
         </Modal>
       )}
