@@ -1,183 +1,517 @@
-const express = require('express');
-const bcrypt = require('bcryptjs');
-const db = require('../database');
-const { authenticate, requireRole } = require('../middleware/auth');
+import React, { useState, useEffect, useCallback } from 'react';
+import { useAuth } from '../context/AuthContext';
+import { api } from '../api';
+import MapPicker from '../components/MapPicker';
 
-const router = express.Router();
-router.use(authenticate, requireRole('manager', 'admin'));
-
-function buildSet(obj) {
-  const keys = Object.keys(obj);
-  const sets = keys.map((k, i) => `${k} = $${i + 1}`);
-  return { sets, values: keys.map(k => obj[k]) };
+function Navbar({ user, onLogout }) {
+  return (
+    <nav className="navbar">
+      <div className="navbar-brand">📍 Staff <span>Attendance</span></div>
+      <div className="navbar-right">
+        <span className="navbar-user">{user.name}</span>
+        <span className="navbar-role">Manager</span>
+        <button className="btn btn-ghost btn-sm" onClick={onLogout}>Logout</button>
+      </div>
+    </nav>
+  );
 }
 
-router.get('/oes', async (req, res) => {
-  try {
-    const mid = req.user.role === 'admin' && req.query.manager_id ? req.query.manager_id : req.user.id;
-    res.json(await db.all(`
-      SELECT u.id, u.name, u.email, u.is_active, u.store_id, u.device_fingerprint, u.device_name, u.created_at,
-        s.store_code, s.name AS store_name
-      FROM users u LEFT JOIN stores s ON s.id = u.store_id
-      WHERE u.role='oe' AND u.manager_id=$1 ORDER BY u.name
-    `, [mid]));
-  } catch (e) { res.status(500).json({ error: e.message }); }
-});
+function Modal({ title, onClose, children, wide }) {
+  return (
+    <div className="modal-overlay" onClick={e => e.target === e.currentTarget && onClose()}>
+      <div className="modal" style={wide ? { maxWidth: 680 } : {}}>
+        <h3 className="modal-title">{title}</h3>
+        {children}
+      </div>
+    </div>
+  );
+}
 
-router.post('/oes', async (req, res) => {
-  try {
-    const { name, email, password, store_id } = req.body;
-    if (!name || !email || !password) return res.status(400).json({ error: 'Name, email, password required' });
-    const total = await db.one("SELECT COUNT(*)::int AS c FROM users WHERE role='oe' AND is_active=1");
-    if (total.c >= 200) return res.status(400).json({ error: 'Maximum 200 active OEs reached' });
-    const hash = await bcrypt.hash(password, 10);
-    const r = await db.run(
-      "INSERT INTO users (name,email,password_hash,role,manager_id,store_id) VALUES ($1,$2,$3,'oe',$4,$5) RETURNING id",
-      [name.trim(), email.toLowerCase().trim(), hash, req.user.id, store_id || null]
-    );
-    res.json({ id: r.rows[0].id, name, email, role: 'oe', is_active: 1 });
-  } catch (e) {
-    if (e.code === '23505') return res.status(400).json({ error: 'Email already exists' });
-    res.status(500).json({ error: e.message });
+function MyOEs({ stores }) {
+  const [oes, setOes] = useState([]);
+  const [showAdd, setShowAdd] = useState(false);
+  const [editItem, setEditItem] = useState(null);
+  const [form, setForm] = useState({ name: '', email: '', password: '', store_id: '' });
+  const [error, setError] = useState('');
+  const [success, setSuccess] = useState('');
+
+  const load = useCallback(async () => {
+    const data = await api.get('/api/manager/oes').catch(() => []);
+    setOes(data || []);
+  }, []);
+
+  useEffect(() => { load(); }, [load]);
+
+  function openAdd() { setForm({ name: '', email: '', password: '', store_id: '' }); setError(''); setEditItem(null); setShowAdd(true); }
+  function openEdit(o) { setForm({ name: o.name, email: o.email, password: '', store_id: o.store_id || '' }); setError(''); setEditItem(o); setShowAdd(true); }
+
+  async function handleSave() {
+    setError('');
+    try {
+      if (editItem) {
+        const body = { name: form.name, email: form.email, store_id: form.store_id || null };
+        if (form.password) body.password = form.password;
+        await api.put(`/api/manager/oes/${editItem.id}`, body);
+      } else {
+        if (!form.name || !form.email || !form.password) { setError('Name, email, password required'); return; }
+        await api.post('/api/manager/oes', { ...form, store_id: form.store_id || null });
+      }
+      setShowAdd(false); setSuccess(editItem ? 'OE updated' : 'OE added'); load();
+      setTimeout(() => setSuccess(''), 3000);
+    } catch (e) { setError(e.message); }
   }
-});
 
-router.put('/oes/:id', async (req, res) => {
-  try {
-    const { name, email, is_active, store_id, password } = req.body;
-    if (req.user.role !== 'admin') {
-      const oe = await db.one('SELECT id FROM users WHERE id=$1 AND manager_id=$2 AND role=$3', [req.params.id, req.user.id, 'oe']);
-      if (!oe) return res.status(404).json({ error: 'OE not found' });
-    }
-    const fields = {};
-    if (name !== undefined) fields.name = name;
-    if (email !== undefined) fields.email = email.toLowerCase().trim();
-    if (is_active !== undefined) fields.is_active = is_active ? 1 : 0;
-    if (store_id !== undefined) fields.store_id = store_id || null;
-    if (password) fields.password_hash = await bcrypt.hash(password, 10);
-    if (!Object.keys(fields).length) return res.status(400).json({ error: 'Nothing to update' });
-    const { sets, values } = buildSet(fields);
-    values.push(req.params.id);
-    await db.run(`UPDATE users SET ${sets.join(', ')} WHERE id=$${values.length}`, values);
-    res.json({ message: 'Updated' });
-  } catch (e) { res.status(500).json({ error: e.message }); }
-});
-
-router.delete('/oes/:id/device', async (req, res) => {
-  try {
-    await db.run('UPDATE users SET device_fingerprint=NULL, device_name=NULL WHERE id=$1', [req.params.id]);
-    res.json({ message: 'Device reset. OE can register a new device on next check-in.' });
-  } catch (e) { res.status(500).json({ error: e.message }); }
-});
-
-router.get('/stores', async (req, res) => {
-  try {
-    if (req.user.role === 'admin') {
-      res.json(await db.all('SELECT s.*, u.name AS manager_name FROM stores s LEFT JOIN users u ON u.id=s.created_by ORDER BY s.store_code'));
-    } else {
-      res.json(await db.all('SELECT s.*, u.name AS manager_name FROM stores s LEFT JOIN users u ON u.id=s.created_by WHERE s.created_by=$1 ORDER BY s.store_code', [req.user.id]));
-    }
-  } catch (e) { res.status(500).json({ error: e.message }); }
-});
-
-router.post('/stores', async (req, res) => {
-  try {
-    const { store_code, name, latitude, longitude, radius_meters } = req.body;
-    if (!store_code || latitude == null || longitude == null) return res.status(400).json({ error: 'Store code, latitude, longitude required' });
-    const r = await db.run(
-      'INSERT INTO stores (store_code,name,latitude,longitude,radius_meters,created_by) VALUES ($1,$2,$3,$4,$5,$6) RETURNING id',
-      [store_code.trim().toUpperCase(), name || '', parseFloat(latitude), parseFloat(longitude), parseInt(radius_meters) || 100, req.user.id]
-    );
-    res.json({ id: r.rows[0].id, store_code, name, latitude, longitude, radius_meters: parseInt(radius_meters) || 100 });
-  } catch (e) {
-    if (e.code === '23505') return res.status(400).json({ error: 'Store code already exists' });
-    res.status(500).json({ error: e.message });
+  async function toggleActive(o) {
+    await api.put(`/api/manager/oes/${o.id}`, { is_active: o.is_active ? 0 : 1 });
+    load();
   }
-});
 
-router.put('/stores/:id', async (req, res) => {
-  try {
-    const { store_code, name, latitude, longitude, radius_meters } = req.body;
-    const fields = {};
-    if (store_code !== undefined) fields.store_code = store_code.trim().toUpperCase();
-    if (name !== undefined) fields.name = name;
-    if (latitude !== undefined) fields.latitude = parseFloat(latitude);
-    if (longitude !== undefined) fields.longitude = parseFloat(longitude);
-    if (radius_meters !== undefined) fields.radius_meters = parseInt(radius_meters);
-    if (!Object.keys(fields).length) return res.status(400).json({ error: 'Nothing to update' });
-    const { sets, values } = buildSet(fields);
-    values.push(req.params.id);
-    await db.run(`UPDATE stores SET ${sets.join(', ')} WHERE id=$${values.length}`, values);
-    res.json({ message: 'Updated' });
-  } catch (e) { res.status(500).json({ error: e.message }); }
-});
+  async function resetDevice(o) {
+    if (!confirm(`Reset registered device for ${o.name}? They will need to re-register on next check-in.`)) return;
+    try {
+      await api.delete(`/api/manager/oes/${o.id}/device`);
+      setSuccess('Device reset successfully');
+      setTimeout(() => setSuccess(''), 3000);
+      load();
+    } catch (e) { setError(e.message); }
+  }
 
-router.delete('/stores/:id', async (req, res) => {
-  try {
-    await db.run('DELETE FROM stores WHERE id=$1', [req.params.id]);
-    res.json({ message: 'Deleted' });
-  } catch (e) { res.status(500).json({ error: e.message }); }
-});
+  return (
+    <div>
+      {success && <div className="alert alert-success">{success}</div>}
+      {error && <div className="alert alert-error">{error}</div>}
+      <div className="section-header">
+        <div className="section-title">My Operation Executives ({oes.length}/200)</div>
+        <button className="btn btn-primary" onClick={openAdd}>+ Add OE</button>
+      </div>
+      <div className="card">
+        <div className="table-wrap">
+          <table>
+            <thead><tr><th>Name</th><th>Email</th><th>Store</th><th>Device</th><th>Status</th><th>Actions</th></tr></thead>
+            <tbody>{oes.map(o => (
+              <tr key={o.id}>
+                <td className="primary">{o.name}</td>
+                <td>{o.email}</td>
+                <td>{o.store_code || <span className="badge badge-yellow">Not Assigned</span>}</td>
+                <td>
+                  {o.device_fingerprint
+                    ? <span className="badge badge-green">📱 {o.device_name || 'Registered'}</span>
+                    : <span className="badge badge-yellow">Not Registered</span>}
+                </td>
+                <td><span className={`badge ${o.is_active ? 'badge-green' : 'badge-red'}`}>{o.is_active ? 'Active' : 'Inactive'}</span></td>
+                <td>
+                  <div className="flex gap-2" style={{ flexWrap: 'wrap' }}>
+                    <button className="btn btn-ghost btn-sm" onClick={() => openEdit(o)}>Edit</button>
+                    {o.device_fingerprint && (
+                      <button className="btn btn-ghost btn-sm" onClick={() => resetDevice(o)} title="Reset registered device">🔄 Reset Device</button>
+                    )}
+                    <button className={`btn btn-sm ${o.is_active ? 'btn-danger' : 'btn-success'}`} onClick={() => toggleActive(o)}>
+                      {o.is_active ? 'Deactivate' : 'Activate'}
+                    </button>
+                  </div>
+                </td>
+              </tr>
+            ))}</tbody>
+          </table>
+          {oes.length === 0 && <p className="text-muted" style={{ padding: 20 }}>No OEs yet.</p>}
+        </div>
+      </div>
 
-router.get('/roster', async (req, res) => {
-  try {
-    const { from, to } = req.query;
-    let q = `SELECT r.*, u.name AS oe_name, s.store_code FROM roster r JOIN users u ON u.id=r.oe_id LEFT JOIN stores s ON s.id=r.store_id WHERE u.manager_id=$1`;
-    const params = [req.user.id];
-    if (from) { params.push(from); q += ` AND r.date >= $${params.length}`; }
-    if (to)   { params.push(to);   q += ` AND r.date <= $${params.length}`; }
-    q += ' ORDER BY r.date, u.name';
-    res.json(await db.all(q, params));
-  } catch (e) { res.status(500).json({ error: e.message }); }
-});
+      {showAdd && (
+        <Modal title={editItem ? 'Edit OE' : 'Add Operation Executive'} onClose={() => setShowAdd(false)}>
+          {error && <div className="alert alert-error">{error}</div>}
+          <div className="form-group"><label className="form-label">Full Name</label>
+            <input className="form-input" value={form.name} onChange={e => setForm(f => ({ ...f, name: e.target.value }))} /></div>
+          <div className="form-group"><label className="form-label">Email</label>
+            <input type="email" className="form-input" value={form.email} onChange={e => setForm(f => ({ ...f, email: e.target.value }))} /></div>
+          <div className="form-group"><label className="form-label">{editItem ? 'New Password (leave blank to keep)' : 'Password'}</label>
+            <input type="password" className="form-input" value={form.password} onChange={e => setForm(f => ({ ...f, password: e.target.value }))} /></div>
+          <div className="form-group"><label className="form-label">Assign Store</label>
+            <select className="form-input" value={form.store_id} onChange={e => setForm(f => ({ ...f, store_id: e.target.value }))}>
+              <option value="">-- No Store --</option>
+              {stores.map(s => <option key={s.id} value={s.id}>{s.store_code}{s.name ? ` – ${s.name}` : ''}</option>)}
+            </select>
+          </div>
+          <div className="modal-footer">
+            <button className="btn btn-ghost" onClick={() => setShowAdd(false)}>Cancel</button>
+            <button className="btn btn-primary" onClick={handleSave}>{editItem ? 'Save' : 'Add OE'}</button>
+          </div>
+        </Modal>
+      )}
+    </div>
+  );
+}
 
-router.post('/roster', async (req, res) => {
-  try {
-    const { oe_id, date, shift_start, shift_end, store_id, notes } = req.body;
-    if (!oe_id || !date) return res.status(400).json({ error: 'OE and date required' });
-    await db.run(`
-      INSERT INTO roster (oe_id,store_id,date,shift_start,shift_end,notes,created_by)
-      VALUES ($1,$2,$3,$4,$5,$6,$7)
-      ON CONFLICT (oe_id, date) DO UPDATE SET
-        store_id=EXCLUDED.store_id, shift_start=EXCLUDED.shift_start,
-        shift_end=EXCLUDED.shift_end, notes=EXCLUDED.notes
-    `, [oe_id, store_id || null, date, shift_start || null, shift_end || null, notes || null, req.user.id]);
-    res.json({ message: 'Roster saved' });
-  } catch (e) { res.status(500).json({ error: e.message }); }
-});
+function Stores({ onStoresChange }) {
+  const [stores, setStores] = useState([]);
+  const [showForm, setShowForm] = useState(false);
+  const [editItem, setEditItem] = useState(null);
+  const [form, setForm] = useState({ store_code: '', name: '', latitude: '', longitude: '', radius_meters: '100' });
+  const [error, setError] = useState('');
+  const [success, setSuccess] = useState('');
 
-router.delete('/roster/:id', async (req, res) => {
-  try {
-    await db.run('DELETE FROM roster WHERE id=$1', [req.params.id]);
-    res.json({ message: 'Deleted' });
-  } catch (e) { res.status(500).json({ error: e.message }); }
-});
+  const load = useCallback(async () => {
+    const data = await api.get('/api/manager/stores').catch(() => []);
+    const s = data || [];
+    setStores(s);
+    if (onStoresChange) onStoresChange(s);
+  }, [onStoresChange]);
 
-router.get('/device-requests', async (req, res) => {
-  try {
-    res.json(await db.all(`
-      SELECT dr.*, u.name AS oe_name, u.email AS oe_email
-      FROM device_requests dr
-      JOIN users u ON u.id = dr.oe_id
-      WHERE u.manager_id = $1
-      ORDER BY dr.requested_at DESC
-    `, [req.user.id]));
-  } catch (e) { res.status(500).json({ error: e.message }); }
-});
+  useEffect(() => { load(); }, [load]);
 
-router.put('/device-requests/:id', async (req, res) => {
-  try {
-    const { action } = req.body;
-    if (!['approve', 'deny'].includes(action)) return res.status(400).json({ error: 'Action must be approve or deny' });
+  function openAdd() {
+    setForm({ store_code: '', name: '', latitude: '', longitude: '', radius_meters: '100' });
+    setError(''); setEditItem(null); setShowForm(true);
+  }
+  function openEdit(s) {
+    setForm({ store_code: s.store_code, name: s.name || '', latitude: String(s.latitude), longitude: String(s.longitude), radius_meters: String(s.radius_meters) });
+    setError(''); setEditItem(s); setShowForm(true);
+  }
 
-    const request = await db.one('SELECT * FROM device_requests WHERE id=$1', [req.params.id]);
-    if (!request) return res.status(404).json({ error: 'Request not found' });
+  async function handleSave() {
+    setError('');
+    if (!form.store_code || !form.latitude || !form.longitude) { setError('Store code, latitude, longitude required. Place a pin on the map.'); return; }
+    try {
+      const body = { ...form, latitude: parseFloat(form.latitude), longitude: parseFloat(form.longitude), radius_meters: parseInt(form.radius_meters) || 100 };
+      if (editItem) {
+        await api.put(`/api/manager/stores/${editItem.id}`, body);
+      } else {
+        await api.post('/api/manager/stores', body);
+      }
+      setShowForm(false); setSuccess(editItem ? 'Store updated' : 'Store added'); load();
+      setTimeout(() => setSuccess(''), 3000);
+    } catch (e) { setError(e.message); }
+  }
 
-    const status = action === 'approve' ? 'approved' : 'denied';
-    await db.run('UPDATE device_requests SET status=$1, approved_by=$2, approved_at=NOW() WHERE id=$3',
-      [status, req.user.id, req.params.id]);
+  async function handleDelete(id) {
+    if (!confirm('Delete this store?')) return;
+    await api.delete(`/api/manager/stores/${id}`);
+    load();
+  }
 
-    if (action === 'approve') {
-      await db.run('UPDATE users SET device_fingerprint=$1, device_name=$2 WHERE id=$3',
-        [request.device_fingerprint, request.device_name, request.oe_id]);
-    }
+  return (
+    <div>
+      {success && <div className="alert alert-success">{success}</div>}
+      <div className="section-header">
+        <div className="section-title">Stores ({stores.length})</div>
+        <button className="btn btn-primary" onClick={openAdd}>+ Add Store</button>
+      </div>
+      <div className="card">
+        <div className="table-wrap">
+          <table>
+            <thead><tr><th>Code</th><th>Name</th><th>Latitude</th><th>Longitude</th><th>Radius</th><th>Actions</th></tr></thead>
+            <tbody>{stores.map(s => (
+              <tr key={s.id}>
+                <td className="primary">{s.store_code}</td>
+                <td>{s.name || '—'}</td>
+                <td>{s.latitude}</td>
+                <td>{s.longitude}</td>
+                <td><span className="badge badge-blue">{s.radius_meters}m</span></td>
+                <td>
+                  <div className="flex gap-2">
+                    <button className="btn btn-ghost btn-sm" onClick={() => openEdit(s)}>Edit</button>
+                    <button className="btn btn-danger btn-sm" onClick={() => handleDelete(s.id)}>Delete</button>
+                  </div>
+                </td>
+              </tr>
+            ))}</tbody>
+          </table>
+          {stores.length === 0 && <p className="text-muted" style={{ padding: 20 }}>No stores yet.</p>}
+        </div>
+      </div>
+
+      {showForm && (
+        <Modal title={editItem ? 'Edit Store' : 'Add Store'} onClose={() => setShowForm(false)} wide>
+          {error && <div className="alert alert-error">{error}</div>}
+          <div className="form-row">
+            <div className="form-group"><label className="form-label">Store Code *</label>
+              <input className="form-input" placeholder="e.g. STR001" value={form.store_code} onChange={e => setForm(f => ({ ...f, store_code: e.target.value }))} /></div>
+            <div className="form-group"><label className="form-label">Store Name</label>
+              <input className="form-input" placeholder="e.g. Main Branch" value={form.name} onChange={e => setForm(f => ({ ...f, name: e.target.value }))} /></div>
+          </div>
+          <div className="form-group">
+            <label className="form-label">Check-In Radius (meters)</label>
+            <input type="number" className="form-input" placeholder="100" value={form.radius_meters}
+              onChange={e => setForm(f => ({ ...f, radius_meters: e.target.value }))} />
+          </div>
+          <div className="form-group">
+            <label className="form-label">Store Location — Search or click on map to place pin</label>
+            <MapPicker
+              lat={form.latitude ? parseFloat(form.latitude) : null}
+              lng={form.longitude ? parseFloat(form.longitude) : null}
+              radius={parseInt(form.radius_meters) || 100}
+              onChange={({ lat, lng }) => setForm(f => ({ ...f, latitude: String(lat), longitude: String(lng) }))}
+            />
+          </div>
+          <div className="form-row" style={{ marginTop: 8 }}>
+            <div className="form-group"><label className="form-label">Latitude (auto-filled from map)</label>
+              <input type="number" step="any" className="form-input" value={form.latitude}
+                onChange={e => setForm(f => ({ ...f, latitude: e.target.value }))} /></div>
+            <div className="form-group"><label className="form-label">Longitude (auto-filled from map)</label>
+              <input type="number" step="any" className="form-input" value={form.longitude}
+                onChange={e => setForm(f => ({ ...f, longitude: e.target.value }))} /></div>
+          </div>
+          <div className="modal-footer">
+            <button className="btn btn-ghost" onClick={() => setShowForm(false)}>Cancel</button>
+            <button className="btn btn-primary" onClick={handleSave}>{editItem ? 'Save' : 'Add Store'}</button>
+          </div>
+        </Modal>
+      )}
+    </div>
+  );
+}
+
+function DeviceRequests() {
+  const [requests, setRequests] = useState([]);
+  const [success, setSuccess] = useState('');
+
+  const load = useCallback(async () => {
+    const data = await api.get('/api/manager/device-requests').catch(() => []);
+    setRequests(data || []);
+  }, []);
+
+  useEffect(() => { load(); }, [load]);
+
+  async function handle(id, action) {
+    try {
+      const res = await api.put(`/api/manager/device-requests/${id}`, { action });
+      setSuccess(res.message);
+      setTimeout(() => setSuccess(''), 3000);
+      load();
+    } catch (e) { alert(e.message); }
+  }
+
+  const pending = requests.filter(r => r.status === 'pending');
+  const resolved = requests.filter(r => r.status !== 'pending');
+
+  return (
+    <div>
+      {success && <div className="alert alert-success">{success}</div>}
+      <div className="section-title" style={{ marginBottom: 16 }}>
+        Device Requests {pending.length > 0 && <span className="badge badge-yellow" style={{ marginLeft: 8 }}>{pending.length} pending</span>}
+      </div>
+      {pending.length === 0 && <div className="alert alert-info" style={{ marginBottom: 16 }}>No pending device requests.</div>}
+      {pending.length > 0 && (
+        <div className="card" style={{ marginBottom: 20 }}>
+          <div className="card-title">Pending Approvals</div>
+          <div className="table-wrap">
+            <table>
+              <thead><tr><th>OE Name</th><th>Device</th><th>Requested</th><th>Actions</th></tr></thead>
+              <tbody>{pending.map(r => (
+                <tr key={r.id}>
+                  <td className="primary">{r.oe_name}<br /><span className="text-muted text-sm">{r.oe_email}</span></td>
+                  <td>📱 {r.device_name || 'Unknown Device'}</td>
+                  <td>{new Date(r.requested_at).toLocaleString()}</td>
+                  <td>
+                    <div className="flex gap-2">
+                      <button className="btn btn-success btn-sm" onClick={() => handle(r.id, 'approve')}>✓ Approve</button>
+                      <button className="btn btn-danger btn-sm" onClick={() => handle(r.id, 'deny')}>✗ Deny</button>
+                    </div>
+                  </td>
+                </tr>
+              ))}</tbody>
+            </table>
+          </div>
+        </div>
+      )}
+      {resolved.length > 0 && (
+        <div className="card">
+          <div className="card-title">Recent History</div>
+          <div className="table-wrap">
+            <table>
+              <thead><tr><th>OE Name</th><th>Device</th><th>Status</th><th>Resolved</th></tr></thead>
+              <tbody>{resolved.slice(0, 20).map(r => (
+                <tr key={r.id}>
+                  <td className="primary">{r.oe_name}</td>
+                  <td>{r.device_name || 'Unknown'}</td>
+                  <td><span className={`badge ${r.status === 'approved' ? 'badge-green' : 'badge-red'}`}>{r.status}</span></td>
+                  <td>{r.approved_at ? new Date(r.approved_at).toLocaleString() : '—'}</td>
+                </tr>
+              ))}</tbody>
+            </table>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function Roster({ stores }) {
+  const today = new Date().toISOString().split('T')[0];
+  const [date, setDate] = useState(today);
+  const [oes, setOes] = useState([]);
+  const [saving, setSaving] = useState({});
+  const [forms, setForms] = useState({});
+  const [success, setSuccess] = useState('');
+
+  useEffect(() => { api.get('/api/manager/oes').then(d => setOes(d || [])).catch(() => {}); }, []);
+
+  const loadRoster = useCallback(async () => {
+    const data = await api.get(`/api/manager/roster?from=${date}&to=${date}`).catch(() => []);
+    const f = {};
+    (data || []).forEach(item => { f[item.oe_id] = { shift_start: item.shift_start || '', shift_end: item.shift_end || '', store_id: item.store_id || '', notes: item.notes || '' }; });
+    setForms(f);
+  }, [date]);
+
+  useEffect(() => { loadRoster(); }, [loadRoster]);
+
+  function getForm(id) { return forms[id] || { shift_start: '', shift_end: '', store_id: '', notes: '' }; }
+  function updateForm(id, key, val) { setForms(f => ({ ...f, [id]: { ...getForm(id), [key]: val } })); }
+
+  async function saveRow(oeId) {
+    setSaving(s => ({ ...s, [oeId]: true }));
+    try {
+      const f = getForm(oeId);
+      await api.post('/api/manager/roster', { oe_id: oeId, date, ...f, store_id: f.store_id || null });
+      setSuccess('Saved'); setTimeout(() => setSuccess(''), 2000);
+    } catch (e) { alert(e.message); }
+    setSaving(s => ({ ...s, [oeId]: false }));
+  }
+
+  return (
+    <div>
+      {success && <div className="alert alert-success">{success}</div>}
+      <div className="section-header">
+        <div className="section-title">Roster Management</div>
+        <div className="flex gap-2" style={{ alignItems: 'center' }}>
+          <label className="form-label" style={{ margin: 0 }}>Date:</label>
+          <input type="date" className="form-input" style={{ width: 160 }} value={date} onChange={e => setDate(e.target.value)} />
+        </div>
+      </div>
+      <div className="card">
+        {oes.filter(o => o.is_active).length === 0
+          ? <p className="text-muted">No active OEs.</p>
+          : (
+            <div className="table-wrap">
+              <table>
+                <thead><tr><th>OE Name</th><th>Shift Start</th><th>Shift End</th><th>Store</th><th>Notes</th><th>Save</th></tr></thead>
+                <tbody>{oes.filter(o => o.is_active).map(o => {
+                  const f = getForm(o.id);
+                  return (
+                    <tr key={o.id}>
+                      <td className="primary">{o.name}</td>
+                      <td><input type="time" className="form-input" style={{ minWidth: 110 }} value={f.shift_start} onChange={e => updateForm(o.id, 'shift_start', e.target.value)} /></td>
+                      <td><input type="time" className="form-input" style={{ minWidth: 110 }} value={f.shift_end} onChange={e => updateForm(o.id, 'shift_end', e.target.value)} /></td>
+                      <td>
+                        <select className="form-input" style={{ minWidth: 120 }} value={f.store_id} onChange={e => updateForm(o.id, 'store_id', e.target.value)}>
+                          <option value="">Default</option>
+                          {stores.map(s => <option key={s.id} value={s.id}>{s.store_code}</option>)}
+                        </select>
+                      </td>
+                      <td><input className="form-input" placeholder="Notes..." value={f.notes} onChange={e => updateForm(o.id, 'notes', e.target.value)} /></td>
+                      <td><button className="btn btn-primary btn-sm" onClick={() => saveRow(o.id)} disabled={saving[o.id]}>Save</button></td>
+                    </tr>
+                  );
+                })}</tbody>
+              </table>
+            </div>
+          )}
+      </div>
+    </div>
+  );
+}
+
+function ManagerReports({ oes }) {
+  const today = new Date().toISOString().split('T')[0];
+  const [from, setFrom] = useState(today);
+  const [to, setTo] = useState(today);
+  const [oeId, setOeId] = useState('');
+  const [rows, setRows] = useState(null);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState('');
+
+  async function viewData() {
+    setLoading(true); setError(''); setRows(null);
+    try {
+      const q = new URLSearchParams({ from, to });
+      if (oeId) q.set('oe_id', oeId);
+      setRows(await api.get(`/api/manager/attendance?${q}`));
+    } catch (e) { setError(e.message); } finally { setLoading(false); }
+  }
+
+  async function download() {
+    try {
+      const q = new URLSearchParams({ from, to, format: 'csv' });
+      if (oeId) q.set('oe_id', oeId);
+      await api.download(`/api/manager/attendance?${q}`);
+    } catch (e) { setError(e.message); }
+  }
+
+  return (
+    <div>
+      <div className="section-title" style={{ marginBottom: 16 }}>Attendance Reports</div>
+      {error && <div className="alert alert-error">{error}</div>}
+      <div className="card" style={{ marginBottom: 20 }}>
+        <div className="form-row-3">
+          <div className="form-group"><label className="form-label">From</label>
+            <input type="date" className="form-input" value={from} onChange={e => setFrom(e.target.value)} /></div>
+          <div className="form-group"><label className="form-label">To</label>
+            <input type="date" className="form-input" value={to} onChange={e => setTo(e.target.value)} /></div>
+          <div className="form-group"><label className="form-label">OE (Optional)</label>
+            <select className="form-input" value={oeId} onChange={e => setOeId(e.target.value)}>
+              <option value="">All OEs</option>
+              {oes.map(o => <option key={o.id} value={o.id}>{o.name}</option>)}
+            </select>
+          </div>
+        </div>
+        <div className="flex gap-2" style={{ marginTop: 8 }}>
+          <button className="btn btn-primary" onClick={viewData} disabled={loading}>{loading ? 'Loading...' : 'View Report'}</button>
+          <button className="btn btn-success" onClick={download}>⬇ Download CSV</button>
+        </div>
+      </div>
+      {rows && (
+        <div className="card">
+          <p className="text-muted text-sm" style={{ marginBottom: 12 }}>{rows.length} records</p>
+          <div className="table-wrap">
+            <table>
+              <thead><tr><th>Date</th><th>OE Name</th><th>Store</th><th>Check In</th><th>Check Out</th><th>Distance</th></tr></thead>
+              <tbody>{rows.map(r => (
+                <tr key={r.id}>
+                  <td className="primary">{r.date}</td>
+                  <td>{r.oe_name}</td>
+                  <td>{r.store_code || '—'}</td>
+                  <td style={{ color: 'var(--green)' }}>{r.check_in_time ? r.check_in_time.replace('T', ' ').slice(0, 19) : '—'}</td>
+                  <td style={{ color: 'var(--yellow)' }}>{r.check_out_time ? r.check_out_time.replace('T', ' ').slice(0, 19) : '—'}</td>
+                  <td>{r.check_in_distance != null ? Math.round(r.check_in_distance) + 'm' : '—'}</td>
+                </tr>
+              ))}</tbody>
+            </table>
+            {rows.length === 0 && <p className="text-muted" style={{ padding: 20 }}>No records.</p>}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+const TABS = ['My OEs', 'Stores', 'Roster', 'Device Requests', 'Reports'];
+
+export default function ManagerDashboard() {
+  const { user, logout } = useAuth();
+  const [tab, setTab] = useState('My OEs');
+  const [stores, setStores] = useState([]);
+  const [oes, setOes] = useState([]);
+
+  useEffect(() => {
+    api.get('/api/manager/stores').then(d => setStores(d || [])).catch(() => {});
+    api.get('/api/manager/oes').then(d => setOes(d || [])).catch(() => {});
+  }, []);
+
+  return (
+    <div className="app">
+      <Navbar user={user} onLogout={logout} />
+      <div className="main">
+        <div className="tabs">
+          {TABS.map(t => (
+            <button key={t} className={`tab ${tab === t ? 'active' : ''}`} onClick={() => setTab(t)}>{t}</button>
+          ))}
+        </div>
+        {tab === 'My OEs' && <MyOEs stores={stores} />}
+        {tab === 'Stores' && <Stores onStoresChange={setStores} />}
+        {tab === 'Roster' && <Roster stores={stores} />}
+        {tab === 'Device Requests' && <DeviceRequests />}
+        {tab === 'Reports' && <ManagerReports oes={oes} />}
+      </div>
+    </div>
+  );
+}
