@@ -10,9 +10,9 @@ export default function MapPicker({ lat, lng, radius, onChange }) {
     const L = window.L;
     if (!L || !containerRef.current || stateRef.current.map) return;
 
-    const initLat = lat || 20.5937;
-    const initLng = lng || 78.9629;
-    const zoom = lat ? 15 : 5;
+    const initLat = lat || 25.2048;
+    const initLng = lng || 55.2708;
+    const zoom = lat ? 15 : 10;
 
     const map = L.map(containerRef.current).setView([initLat, initLng], zoom);
     L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
@@ -103,7 +103,7 @@ export default function MapPicker({ lat, lng, radius, onChange }) {
       <form onSubmit={handleSearch} style={{ display: 'flex', gap: 8, marginBottom: 8 }}>
         <input
           className="form-input"
-          placeholder="Search location (e.g. MG Road, Bangalore)..."
+          placeholder="Search location (e.g. Dubai Mall, Abu Dhabi)..."
           value={search}
           onChange={e => setSearch(e.target.value)}
         />

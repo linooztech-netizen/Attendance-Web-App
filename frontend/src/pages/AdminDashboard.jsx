@@ -5,7 +5,7 @@ import { api } from '../api';
 function Navbar({ user, onLogout }) {
   return (
     <nav className="navbar">
-      <div className="navbar-brand">📍 Staff <span>Attendance</span></div>
+      <div className="navbar-brand">🕐 Employee <span>Attendance</span></div>
       <div className="navbar-right">
         <span className="navbar-user">{user.name}</span>
         <span className="navbar-role">Admin</span>

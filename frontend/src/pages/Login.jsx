@@ -31,8 +31,8 @@ export default function Login() {
     <div className="login-page">
       <div className="login-card">
         <div className="login-logo">
-          <div className="login-logo-icon">📍</div>
-          <h1>Staff Attendance</h1>
+          <div className="login-logo-icon">🕐</div>
+          <h1 style={{ color: '#ff8c00' }}>Employee Attendance</h1>
           <p>GPS Geofencing System</p>
         </div>
 
