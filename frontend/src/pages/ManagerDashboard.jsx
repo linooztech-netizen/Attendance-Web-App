@@ -103,7 +103,7 @@ function MyOEs({ stores }) {
                   <div className="flex gap-2" style={{ flexWrap: 'wrap' }}>
                     <button className="btn btn-ghost btn-sm" onClick={() => openEdit(o)}>Edit</button>
                     {o.device_fingerprint && (
-                      <button className="btn btn-ghost btn-sm" onClick={() => resetDevice(o)} title="Reset registered device">🔄 Reset Device</button>
+                      <button className="btn btn-ghost btn-sm" onClick={() => resetDevice(o)}>🔄 Reset Device</button>
                     )}
                     <button className={`btn btn-sm ${o.is_active ? 'btn-danger' : 'btn-success'}`} onClick={() => toggleActive(o)}>
                       {o.is_active ? 'Deactivate' : 'Activate'}
