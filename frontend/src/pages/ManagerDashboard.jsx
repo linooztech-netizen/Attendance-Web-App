@@ -407,6 +407,8 @@ function Roster() {
   const [editForm, setEditForm] = useState({});
   const [saving, setSaving] = useState(false);
   const [success, setSuccess] = useState('');
+  const [weekOffDays, setWeekOffDays] = useState([]);
+  const [bulkApplying, setBulkApplying] = useState(false);
 
   const MONTHS = ['January','February','March','April','May','June','July','August','September','October','November','December'];
   const DOW = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
@@ -455,6 +457,25 @@ function Roster() {
     setSaving(false);
   }
 
+  async function applyBulkWeekOff() {
+    if (!weekOffDays.length) return;
+    setBulkApplying(true);
+    try {
+      const totalDays = new Date(year, month+1, 0).getDate();
+      const saves = [];
+      for (let d = 1; d <= totalDays; d++) {
+        if (weekOffDays.includes(new Date(year, month, d).getDay())) {
+          saves.push(api.post('/api/manager/roster', { oe_id: selectedOE, date: dateStr(d), day_type: 'weekoff', shift_start: null, shift_end: null, notes: null }));
+        }
+      }
+      await Promise.all(saves);
+      setSuccess(`${saves.length} days marked as Week Off`);
+      setTimeout(() => setSuccess(''), 3000);
+      await loadRoster();
+    } catch (e) { alert(e.message); }
+    setBulkApplying(false);
+  }
+
   const calendar = buildCalendar();
   const weeks = [];
   for (let i = 0; i < calendar.length; i += 7) weeks.push(calendar.slice(i, i+7));
@@ -481,6 +502,24 @@ function Roster() {
       {!selectedOE
         ? <div className="alert alert-info">Select an OE to view and manage their monthly roster.</div>
         : <>
+            {/* Bulk Week Off Tool */}
+            <div className="card" style={{ padding: '12px 16px', marginBottom: 12, display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+              <span style={{ fontSize: 12, fontWeight: 700, color: 'var(--text3)', whiteSpace: 'nowrap' }}>Auto Week Off:</span>
+              <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+                {DOW.map((d, i) => (
+                  <button key={i} onClick={() => setWeekOffDays(prev => prev.includes(i) ? prev.filter(x => x !== i) : [...prev, i])}
+                    style={{ padding: '4px 11px', borderRadius: 14, border: '1.5px solid #3b82f6', background: weekOffDays.includes(i) ? '#3b82f6' : 'transparent', color: weekOffDays.includes(i) ? '#fff' : '#3b82f6', fontSize: 11, fontWeight: 700, cursor: 'pointer', transition: 'all 0.15s' }}>
+                    {d}
+                  </button>
+                ))}
+              </div>
+              <button onClick={applyBulkWeekOff} disabled={bulkApplying || !weekOffDays.length || !selectedOE}
+                style={{ padding: '5px 14px', borderRadius: 14, background: weekOffDays.length ? '#3b82f6' : 'var(--bg3)', color: weekOffDays.length ? '#fff' : 'var(--text3)', border: 'none', fontSize: 12, fontWeight: 700, cursor: weekOffDays.length ? 'pointer' : 'default', whiteSpace: 'nowrap' }}>
+                {bulkApplying ? 'Applying...' : 'Apply to Month'}
+              </button>
+            </div>
+
+            {/* Legend */}
             <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap', marginBottom: 12 }}>
               {DAY_TYPES.map(t => (
                 <div key={t.value} style={{ display: 'flex', alignItems: 'center', gap: 5, fontSize: 11, fontWeight: 600 }}>
