@@ -76,6 +76,24 @@ function MyOEs({ stores }) {
     } catch (e) { setError(e.message); }
   }
 
+  const [deviceModal, setDeviceModal] = useState(null);
+  const [deviceForm, setDeviceForm] = useState({ device_name: '' });
+
+  function openDeviceModal(o) {
+    setDeviceForm({ device_name: o.device_name || '' });
+    setDeviceModal(o);
+  }
+
+  async function saveDevice() {
+    try {
+      await api.put(`/api/manager/oes/${deviceModal.id}`, { device_name: deviceForm.device_name, phone_number: deviceForm.phone_number });
+      setDeviceModal(null);
+      setSuccess('Device info saved');
+      setTimeout(() => setSuccess(''), 3000);
+      load();
+    } catch (e) { setError(e.message); }
+  }
+
   return (
     <div>
       {success && <div className="alert alert-success">{success}</div>}
@@ -102,8 +120,9 @@ function MyOEs({ stores }) {
                 <td>
                   <div className="flex gap-2" style={{ flexWrap: 'wrap' }}>
                     <button className="btn btn-ghost btn-sm" onClick={() => openEdit(o)}>Edit</button>
+                    <button className="btn btn-ghost btn-sm" onClick={() => openDeviceModal(o)}>📱 Device Info</button>
                     {o.device_fingerprint && (
-                      <button className="btn btn-ghost btn-sm" onClick={() => resetDevice(o)}>🔄 Reset Device</button>
+                      <button className="btn btn-ghost btn-sm" onClick={() => resetDevice(o)}>🔄 Reset</button>
                     )}
                     <button className={`btn btn-sm ${o.is_active ? 'btn-danger' : 'btn-success'}`} onClick={() => toggleActive(o)}>
                       {o.is_active ? 'Deactivate' : 'Activate'}
@@ -116,6 +135,23 @@ function MyOEs({ stores }) {
           {oes.length === 0 && <p className="text-muted" style={{ padding: 20 }}>No OEs yet.</p>}
         </div>
       </div>
+
+      {deviceModal && (
+        <Modal title={`Device Info — ${deviceModal.name}`} onClose={() => setDeviceModal(null)}>
+          <div className="form-group"><label className="form-label">Device Name / Model</label>
+            <input className="form-input" placeholder="e.g. Samsung Galaxy S23" value={deviceForm.device_name}
+              onChange={e => setDeviceForm(f => ({ ...f, device_name: e.target.value }))} /></div>
+          {deviceModal.device_fingerprint && (
+            <div className="alert alert-info" style={{ marginBottom: 12 }}>
+              Auto-registered device: <strong>{deviceModal.device_name || 'Unknown'}</strong>
+            </div>
+          )}
+          <div className="modal-footer">
+            <button className="btn btn-ghost" onClick={() => setDeviceModal(null)}>Cancel</button>
+            <button className="btn btn-primary" onClick={saveDevice}>Save</button>
+          </div>
+        </Modal>
+      )}
 
       {showAdd && (
         <Modal title={editItem ? 'Edit OE' : 'Add Operation Executive'} onClose={() => setShowAdd(false)}>

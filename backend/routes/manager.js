@@ -45,7 +45,7 @@ router.post('/oes', async (req, res) => {
 
 router.put('/oes/:id', async (req, res) => {
   try {
-    const { name, email, is_active, store_id, password } = req.body;
+    const { name, email, is_active, store_id, password, device_name } = req.body;
     if (req.user.role !== 'admin') {
       const oe = await db.one('SELECT id FROM users WHERE id=$1 AND manager_id=$2 AND role=$3', [req.params.id, req.user.id, 'oe']);
       if (!oe) return res.status(404).json({ error: 'OE not found' });
@@ -56,6 +56,7 @@ router.put('/oes/:id', async (req, res) => {
     if (is_active !== undefined) fields.is_active = is_active ? 1 : 0;
     if (store_id !== undefined) fields.store_id = store_id || null;
     if (password) fields.password_hash = await bcrypt.hash(password, 10);
+    if (device_name !== undefined) fields.device_name = device_name || null;
     if (!Object.keys(fields).length) return res.status(400).json({ error: 'Nothing to update' });
     const { sets, values } = buildSet(fields);
     values.push(req.params.id);
