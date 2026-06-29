@@ -453,6 +453,8 @@ const DAY_TYPES = [
   { value: 'sick_leave', label: 'Sick Leave', color: '#ef4444' },
 ];
 
+const DOW_NAMES = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
+
 function Roster() {
   const now = new Date();
   const [year, setYear] = useState(now.getFullYear());
@@ -464,11 +466,16 @@ function Roster() {
   const [editForm, setEditForm] = useState({});
   const [saving, setSaving] = useState(false);
   const [success, setSuccess] = useState('');
-  const [weekOffDays, setWeekOffDays] = useState([]);
-  const [bulkApplying, setBulkApplying] = useState(false);
+  const [applying, setApplying] = useState(false);
+  const [template, setTemplate] = useState(() =>
+    DOW_NAMES.reduce((acc, _, i) => {
+      acc[i] = { day_type: (i === 0 || i === 6) ? 'weekoff' : 'normal', shift_start: '', shift_end: '' };
+      return acc;
+    }, {})
+  );
 
   const MONTHS = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
-  const DOW = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
+  const DOW = DOW_NAMES;
   const todayStr = now.toLocaleDateString('en-CA');
 
   useEffect(() => { api.get('/api/manager/oes').then(d => setOes(d || [])).catch(() => {}); }, []);
@@ -523,23 +530,31 @@ function Roster() {
     }
   }
 
-  async function applyBulkWeekOff() {
-    if (!weekOffDays.length) return;
-    setBulkApplying(true);
+  function updateTemplate(dow, key, val) {
+    setTemplate(prev => ({ ...prev, [dow]: { ...prev[dow], [key]: val } }));
+  }
+
+  async function applyTemplate() {
+    setApplying(true);
     try {
       const totalDays = new Date(year, month+1, 0).getDate();
       const saves = [];
       for (let d = 1; d <= totalDays; d++) {
-        if (weekOffDays.includes(new Date(year, month, d).getDay())) {
-          saves.push(api.post('/api/manager/roster', { oe_id: selectedOE, date: dateStr(d), day_type: 'weekoff', shift_start: null, shift_end: null }));
-        }
+        const t = template[new Date(year, month, d).getDay()];
+        saves.push(api.post('/api/manager/roster', {
+          oe_id: selectedOE,
+          date: dateStr(d),
+          day_type: t.day_type,
+          shift_start: (t.day_type === 'normal' || t.day_type === 'OT') ? (t.shift_start || null) : null,
+          shift_end:   (t.day_type === 'normal' || t.day_type === 'OT') ? (t.shift_end   || null) : null,
+        }));
       }
       await Promise.all(saves);
-      setSuccess(`${saves.length} days set as Week Off`);
+      setSuccess(`All ${totalDays} days updated!`);
       setTimeout(() => setSuccess(''), 3000);
       await loadRoster();
     } catch (e) { alert(e.message); }
-    setBulkApplying(false);
+    setApplying(false);
   }
 
   const calendar = buildCalendar();
@@ -567,18 +582,31 @@ function Roster() {
       {!selectedOE
         ? <div className="alert alert-info">Select an OE to manage their roster.</div>
         : <>
-            {/* Auto Week Off */}
-            <div className="card" style={{ padding: '10px 14px', marginBottom: 10, display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
-              <span style={{ fontSize: 11, fontWeight: 700, color: 'var(--text3)' }}>Week Off Days:</span>
-              {DOW.map((d, i) => (
-                <button key={i} onClick={() => setWeekOffDays(prev => prev.includes(i) ? prev.filter(x => x !== i) : [...prev, i])}
-                  style={{ padding: '3px 10px', borderRadius: 12, border: '1.5px solid #3b82f6', background: weekOffDays.includes(i) ? '#3b82f6' : 'transparent', color: weekOffDays.includes(i) ? '#fff' : '#3b82f6', fontSize: 11, fontWeight: 700, cursor: 'pointer' }}>
-                  {d}
-                </button>
-              ))}
-              <button onClick={applyBulkWeekOff} disabled={bulkApplying || !weekOffDays.length}
-                style={{ padding: '4px 12px', borderRadius: 12, background: weekOffDays.length ? '#3b82f6' : 'var(--bg3)', color: weekOffDays.length ? '#fff' : 'var(--text3)', border: 'none', fontSize: 11, fontWeight: 700, cursor: weekOffDays.length ? 'pointer' : 'default' }}>
-                {bulkApplying ? 'Applying...' : 'Apply'}
+            {/* Setup Entire Month */}
+            <div className="card" style={{ marginBottom: 12, padding: '14px 16px' }}>
+              <div style={{ fontWeight: 700, fontSize: 13, marginBottom: 12, color: 'var(--orange)' }}>Setup Entire Month</div>
+              <div style={{ display: 'grid', gap: 8 }}>
+                {DOW.map((day, i) => {
+                  const t = template[i];
+                  const needsTime = t.day_type === 'normal' || t.day_type === 'OT';
+                  const dt = DAY_TYPES.find(x => x.value === t.day_type);
+                  return (
+                    <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+                      <span style={{ width: 32, fontWeight: 700, fontSize: 12, color: dt?.color || 'var(--text3)' }}>{day}</span>
+                      <select className="form-input" style={{ width: 130, fontSize: 12 }} value={t.day_type} onChange={e => updateTemplate(i, 'day_type', e.target.value)}>
+                        {DAY_TYPES.map(x => <option key={x.value} value={x.value}>{x.label}</option>)}
+                      </select>
+                      {needsTime && <>
+                        <input type="time" className="form-input" style={{ width: 112, fontSize: 12 }} value={t.shift_start} onChange={e => updateTemplate(i, 'shift_start', e.target.value)} placeholder="Start" />
+                        <span style={{ color: 'var(--text3)', fontSize: 12 }}>→</span>
+                        <input type="time" className="form-input" style={{ width: 112, fontSize: 12 }} value={t.shift_end} onChange={e => updateTemplate(i, 'shift_end', e.target.value)} placeholder="End" />
+                      </>}
+                    </div>
+                  );
+                })}
+              </div>
+              <button className="btn btn-primary" style={{ marginTop: 14, width: '100%', fontWeight: 700 }} onClick={applyTemplate} disabled={applying}>
+                {applying ? 'Applying...' : `Apply to All ${new Date(year, month+1, 0).getDate()} Days in ${MONTHS[month]}`}
               </button>
             </div>
 
