@@ -16,6 +16,8 @@
   --blue: #3b82f6;
   --blue-dim: #2563eb;
   --yellow: #f59e0b;
+  --orange: #f97316;
+  --orange-dim: #ea6c0a;
   --radius: 8px;
 }
 
@@ -44,8 +46,9 @@ body {
   top: 0;
   z-index: 100;
 }
-.navbar-brand { font-size: 16px; font-weight: 700; letter-spacing: 0.5px; color: #ff8c00; }
-.navbar-brand span { color: #ff8c00; }
+.navbar { border-bottom: 1px solid var(--orange); }
+.navbar-brand { font-size: 16px; font-weight: 700; letter-spacing: 0.5px; color: var(--orange); }
+.navbar-brand span { color: var(--orange); }
 .navbar-right { display: flex; align-items: center; gap: 16px; }
 .navbar-user { color: var(--text2); font-size: 13px; }
 .navbar-role {
@@ -97,7 +100,7 @@ body {
   transition: all 0.15s;
 }
 .tab:hover { color: var(--text2); }
-.tab.active { color: var(--text); border-bottom-color: var(--green); }
+.tab.active { color: var(--orange); border-bottom-color: var(--orange); }
 
 /* Buttons */
 .btn {
@@ -115,7 +118,8 @@ body {
 }
 .btn:disabled { opacity: 0.5; cursor: not-allowed; }
 .btn:hover:not(:disabled) { opacity: 0.85; }
-.btn-primary { background: var(--blue); color: #fff; }
+.btn-primary { background: var(--orange); color: #fff; }
+.btn-primary:hover:not(:disabled) { background: var(--orange-dim); opacity: 1; }
 .btn-success { background: var(--green); color: #000; font-weight: 600; }
 .btn-danger { background: var(--red); color: #fff; }
 .btn-ghost { background: transparent; color: var(--text2); border: 1px solid var(--border2); }
@@ -146,7 +150,7 @@ body {
   transition: border-color 0.15s;
   outline: none;
 }
-.form-input:focus { border-color: var(--blue); }
+.form-input:focus { border-color: var(--orange); }
 .form-input::placeholder { color: var(--text3); }
 .form-row { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
 .form-row-3 { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 12px; }
@@ -276,11 +280,12 @@ td.primary { color: var(--text); font-weight: 500; }
 }
 .login-card {
   background: var(--bg2);
-  border: 1px solid var(--border);
+  border: 1px solid var(--orange);
   border-radius: 16px;
   padding: 40px;
   width: 100%;
-  max-width: 380px;
+  max-width: 400px;
+  box-shadow: 0 0 40px rgba(249, 115, 22, 0.15);
 }
 .login-logo { text-align: center; margin-bottom: 28px; }
 .login-logo-icon { font-size: 48px; margin-bottom: 8px; }
