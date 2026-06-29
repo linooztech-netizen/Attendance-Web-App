@@ -1,4 +1,3 @@
-
 import React, { useEffect, useRef, useState } from 'react';
 
 const NOMINATIM = 'https://nominatim.openstreetmap.org/search';
