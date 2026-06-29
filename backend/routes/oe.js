@@ -147,8 +147,17 @@ router.post('/checkin', async (req, res) => {
 
 router.post('/checkout', async (req, res) => {
   try {
-    const { latitude, longitude } = req.body;
+    const { latitude, longitude, device_fingerprint } = req.body;
     if (latitude == null || longitude == null) return res.status(400).json({ error: 'GPS location required' });
+
+    // Device lock — must check out from registered device
+    const user = await db.one('SELECT * FROM users WHERE id=$1', [req.user.id]);
+    if (user.device_fingerprint && device_fingerprint && user.device_fingerprint !== device_fingerprint) {
+      return res.status(403).json({
+        error: 'Check-out must be done from your registered device.',
+        device_not_authorized: true
+      });
+    }
 
     const today = todayLocal();
     const record = await db.one(
@@ -157,10 +166,18 @@ router.post('/checkout', async (req, res) => {
     );
     if (!record) return res.status(400).json({ error: 'No active check-in found. Please check in first.' });
 
-    let distance = null;
-    if (record.store_id) {
-      const store = await db.one('SELECT * FROM stores WHERE id=$1', [record.store_id]);
-      if (store) distance = haversine(parseFloat(latitude), parseFloat(longitude), store.latitude, store.longitude);
+    if (!record.store_id) return res.status(400).json({ error: 'Store not found for this visit.' });
+
+    const store = await db.one('SELECT * FROM stores WHERE id=$1', [record.store_id]);
+    const distance = haversine(parseFloat(latitude), parseFloat(longitude), store.latitude, store.longitude);
+
+    if (distance > store.radius_meters) {
+      return res.status(400).json({
+        error: `You are ${Math.round(distance)}m away from ${store.store_code}. Must be within ${store.radius_meters}m to check out.`,
+        distance: Math.round(distance),
+        required: store.radius_meters,
+        outside_fence: true
+      });
     }
 
     const now = new Date().toISOString();

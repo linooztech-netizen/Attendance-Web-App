@@ -467,7 +467,7 @@ function Roster() {
   const [weekOffDays, setWeekOffDays] = useState([]);
   const [bulkApplying, setBulkApplying] = useState(false);
 
-  const MONTHS = ['January','February','March','April','May','June','July','August','September','October','November','December'];
+  const MONTHS = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
   const DOW = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
   const todayStr = now.toLocaleDateString('en-CA');
 
@@ -500,18 +500,27 @@ function Roster() {
   function openEdit(d) {
     const ds = dateStr(d);
     const e = rosterMap[ds] || {};
-    setEditForm({ date: ds, shift_start: e.shift_start || '', shift_end: e.shift_end || '', day_type: e.day_type || 'normal', notes: e.notes || '' });
+    setEditForm({ date: ds, shift_start: e.shift_start || '', shift_end: e.shift_end || '', day_type: e.day_type || 'normal' });
     setEditDay(ds);
   }
 
-  async function saveEdit() {
+  async function saveDay(form) {
     setSaving(true);
     try {
-      await api.post('/api/manager/roster', { oe_id: selectedOE, date: editForm.date, shift_start: editForm.shift_start || null, shift_end: editForm.shift_end || null, day_type: editForm.day_type, notes: editForm.notes || null });
-      setEditDay(null); setSuccess('Saved'); setTimeout(() => setSuccess(''), 2000);
+      await api.post('/api/manager/roster', { oe_id: selectedOE, date: form.date, shift_start: form.shift_start || null, shift_end: form.shift_end || null, day_type: form.day_type });
+      setSuccess('Saved'); setTimeout(() => setSuccess(''), 1500);
       await loadRoster();
     } catch (e) { alert(e.message); }
     setSaving(false);
+  }
+
+  async function pickType(type) {
+    const next = { ...editForm, day_type: type };
+    setEditForm(next);
+    if (type !== 'normal' && type !== 'OT') {
+      setEditDay(null);
+      await saveDay(next);
+    }
   }
 
   async function applyBulkWeekOff() {
@@ -522,11 +531,11 @@ function Roster() {
       const saves = [];
       for (let d = 1; d <= totalDays; d++) {
         if (weekOffDays.includes(new Date(year, month, d).getDay())) {
-          saves.push(api.post('/api/manager/roster', { oe_id: selectedOE, date: dateStr(d), day_type: 'weekoff', shift_start: null, shift_end: null, notes: null }));
+          saves.push(api.post('/api/manager/roster', { oe_id: selectedOE, date: dateStr(d), day_type: 'weekoff', shift_start: null, shift_end: null }));
         }
       }
       await Promise.all(saves);
-      setSuccess(`${saves.length} days marked as Week Off`);
+      setSuccess(`${saves.length} days set as Week Off`);
       setTimeout(() => setSuccess(''), 3000);
       await loadRoster();
     } catch (e) { alert(e.message); }
@@ -540,73 +549,59 @@ function Roster() {
   return (
     <div>
       {success && <div className="alert alert-success">{success}</div>}
-      <div className="section-header" style={{ flexWrap: 'wrap', gap: 8, marginBottom: 16 }}>
-        <div className="section-title">Roster Calendar</div>
-        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-          <select className="form-input" style={{ width: 'auto' }} value={selectedOE} onChange={e => setSelectedOE(e.target.value)}>
-            <option value="">-- Select OE --</option>
-            {oes.filter(o => o.is_active).map(o => <option key={o.id} value={o.id}>{o.name}</option>)}
-          </select>
-          <select className="form-input" style={{ width: 'auto' }} value={month} onChange={e => setMonth(+e.target.value)}>
-            {MONTHS.map((m,i) => <option key={i} value={i}>{m}</option>)}
-          </select>
-          <select className="form-input" style={{ width: 'auto' }} value={year} onChange={e => setYear(+e.target.value)}>
-            {[2024,2025,2026,2027].map(y => <option key={y} value={y}>{y}</option>)}
-          </select>
-        </div>
+
+      {/* Controls */}
+      <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 12, alignItems: 'center' }}>
+        <select className="form-input" style={{ width: 'auto' }} value={selectedOE} onChange={e => setSelectedOE(e.target.value)}>
+          <option value="">-- Select OE --</option>
+          {oes.filter(o => o.is_active).map(o => <option key={o.id} value={o.id}>{o.name}</option>)}
+        </select>
+        <select className="form-input" style={{ width: 'auto' }} value={month} onChange={e => setMonth(+e.target.value)}>
+          {MONTHS.map((m,i) => <option key={i} value={i}>{m}</option>)}
+        </select>
+        <select className="form-input" style={{ width: 'auto' }} value={year} onChange={e => setYear(+e.target.value)}>
+          {[2024,2025,2026,2027].map(y => <option key={y} value={y}>{y}</option>)}
+        </select>
       </div>
 
       {!selectedOE
-        ? <div className="alert alert-info">Select an OE to view and manage their monthly roster.</div>
+        ? <div className="alert alert-info">Select an OE to manage their roster.</div>
         : <>
-            {/* Bulk Week Off Tool */}
-            <div className="card" style={{ padding: '12px 16px', marginBottom: 12, display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
-              <span style={{ fontSize: 12, fontWeight: 700, color: 'var(--text3)', whiteSpace: 'nowrap' }}>Auto Week Off:</span>
-              <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
-                {DOW.map((d, i) => (
-                  <button key={i} onClick={() => setWeekOffDays(prev => prev.includes(i) ? prev.filter(x => x !== i) : [...prev, i])}
-                    style={{ padding: '4px 11px', borderRadius: 14, border: '1.5px solid #3b82f6', background: weekOffDays.includes(i) ? '#3b82f6' : 'transparent', color: weekOffDays.includes(i) ? '#fff' : '#3b82f6', fontSize: 11, fontWeight: 700, cursor: 'pointer', transition: 'all 0.15s' }}>
-                    {d}
-                  </button>
-                ))}
-              </div>
-              <button onClick={applyBulkWeekOff} disabled={bulkApplying || !weekOffDays.length || !selectedOE}
-                style={{ padding: '5px 14px', borderRadius: 14, background: weekOffDays.length ? '#3b82f6' : 'var(--bg3)', color: weekOffDays.length ? '#fff' : 'var(--text3)', border: 'none', fontSize: 12, fontWeight: 700, cursor: weekOffDays.length ? 'pointer' : 'default', whiteSpace: 'nowrap' }}>
-                {bulkApplying ? 'Applying...' : 'Apply to Month'}
+            {/* Auto Week Off */}
+            <div className="card" style={{ padding: '10px 14px', marginBottom: 10, display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+              <span style={{ fontSize: 11, fontWeight: 700, color: 'var(--text3)' }}>Week Off Days:</span>
+              {DOW.map((d, i) => (
+                <button key={i} onClick={() => setWeekOffDays(prev => prev.includes(i) ? prev.filter(x => x !== i) : [...prev, i])}
+                  style={{ padding: '3px 10px', borderRadius: 12, border: '1.5px solid #3b82f6', background: weekOffDays.includes(i) ? '#3b82f6' : 'transparent', color: weekOffDays.includes(i) ? '#fff' : '#3b82f6', fontSize: 11, fontWeight: 700, cursor: 'pointer' }}>
+                  {d}
+                </button>
+              ))}
+              <button onClick={applyBulkWeekOff} disabled={bulkApplying || !weekOffDays.length}
+                style={{ padding: '4px 12px', borderRadius: 12, background: weekOffDays.length ? '#3b82f6' : 'var(--bg3)', color: weekOffDays.length ? '#fff' : 'var(--text3)', border: 'none', fontSize: 11, fontWeight: 700, cursor: weekOffDays.length ? 'pointer' : 'default' }}>
+                {bulkApplying ? 'Applying...' : 'Apply'}
               </button>
             </div>
 
-            {/* Legend */}
-            <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap', marginBottom: 12 }}>
-              {DAY_TYPES.map(t => (
-                <div key={t.value} style={{ display: 'flex', alignItems: 'center', gap: 5, fontSize: 11, fontWeight: 600 }}>
-                  <div style={{ width: 12, height: 12, borderRadius: 3, background: t.color }} />
-                  <span style={{ color: t.color }}>{t.label}</span>
-                </div>
-              ))}
-            </div>
+            {/* Calendar */}
             <div className="card" style={{ padding: 0, overflow: 'hidden' }}>
               <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7,1fr)', background: 'var(--bg3)', borderBottom: '1px solid var(--border)' }}>
-                {DOW.map(d => <div key={d} style={{ padding: '10px 4px', textAlign: 'center', fontSize: 11, fontWeight: 700, color: 'var(--text3)', textTransform: 'uppercase' }}>{d}</div>)}
+                {DOW.map(d => <div key={d} style={{ padding: '8px 2px', textAlign: 'center', fontSize: 10, fontWeight: 700, color: 'var(--text3)', textTransform: 'uppercase' }}>{d}</div>)}
               </div>
               {weeks.map((week, wi) => (
                 <div key={wi} style={{ display: 'grid', gridTemplateColumns: 'repeat(7,1fr)', borderBottom: wi < weeks.length-1 ? '1px solid var(--border)' : 'none' }}>
                   {week.map((day, di) => {
-                    if (!day) return <div key={di} style={{ minHeight: 88, background: 'var(--bg3)', opacity: 0.4, borderRight: di < 6 ? '1px solid var(--border)' : 'none' }} />;
+                    if (!day) return <div key={di} style={{ minHeight: 72, background: 'var(--bg3)', opacity: 0.4, borderRight: di < 6 ? '1px solid var(--border)' : 'none' }} />;
                     const ds = dateStr(day);
                     const entry = rosterMap[ds];
                     const dt = DAY_TYPES.find(t => t.value === (entry?.day_type || 'normal'));
                     const isToday = ds === todayStr;
                     const hasMark = entry?.day_type && entry.day_type !== 'normal';
                     return (
-                      <div key={di} onClick={() => openEdit(day)} style={{ minHeight: 88, borderRight: di < 6 ? '1px solid var(--border)' : 'none', padding: '6px 8px', cursor: 'pointer', background: hasMark ? `${dt.color}18` : 'transparent', transition: 'background 0.1s' }}>
-                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 }}>
-                          <span style={{ fontSize: 13, fontWeight: 700, color: isToday ? '#f97316' : hasMark ? dt.color : 'var(--text)' }}>{day}</span>
-                          {isToday && <span style={{ fontSize: 8, background: '#f97316', color: '#fff', borderRadius: 3, padding: '1px 4px', fontWeight: 700 }}>TODAY</span>}
-                        </div>
-                        {entry?.shift_start && <div style={{ fontSize: 10, color: '#22c55e', lineHeight: 1.6 }}>▶ {entry.shift_start}</div>}
-                        {entry?.shift_end && <div style={{ fontSize: 10, color: '#f59e0b', lineHeight: 1.6 }}>■ {entry.shift_end}</div>}
-                        {hasMark && <div style={{ fontSize: 9, fontWeight: 700, color: dt.color, marginTop: 2, textTransform: 'uppercase', letterSpacing: '0.5px' }}>{dt.label}</div>}
+                      <div key={di} onClick={() => openEdit(day)} style={{ minHeight: 72, borderRight: di < 6 ? '1px solid var(--border)' : 'none', padding: '5px 6px', cursor: 'pointer', background: hasMark ? `${dt.color}18` : 'transparent' }}>
+                        <div style={{ fontSize: 12, fontWeight: 700, color: isToday ? '#f97316' : hasMark ? dt.color : 'var(--text)', marginBottom: 2 }}>{day}{isToday && <span style={{ fontSize: 7, background: '#f97316', color: '#fff', borderRadius: 2, padding: '1px 3px', marginLeft: 3, fontWeight: 700 }}>•</span>}</div>
+                        {entry?.shift_start && <div style={{ fontSize: 9, color: '#22c55e' }}>{entry.shift_start}</div>}
+                        {entry?.shift_end && <div style={{ fontSize: 9, color: '#f59e0b' }}>{entry.shift_end}</div>}
+                        {hasMark && <div style={{ fontSize: 8, fontWeight: 700, color: dt.color, textTransform: 'uppercase' }}>{dt.label}</div>}
                       </div>
                     );
                   })}
@@ -616,34 +611,43 @@ function Roster() {
           </>
       }
 
+      {/* Quick Edit Modal */}
       {editDay && (
         <div className="modal-overlay" onClick={e => e.target === e.currentTarget && setEditDay(null)}>
-          <div className="modal" style={{ maxWidth: 400 }}>
-            <h3 className="modal-title">Set Roster — {editDay}</h3>
-            <div className="form-group">
-              <label className="form-label">Day Type</label>
-              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginTop: 6 }}>
-                {DAY_TYPES.map(t => (
-                  <button key={t.value} onClick={() => setEditForm(f => ({ ...f, day_type: t.value }))} style={{ padding: '6px 14px', borderRadius: 20, border: `2px solid ${t.color}`, background: editForm.day_type === t.value ? t.color : 'transparent', color: editForm.day_type === t.value ? '#fff' : t.color, fontSize: 12, fontWeight: 600, cursor: 'pointer', transition: 'all 0.15s' }}>
-                    {t.label}
-                  </button>
-                ))}
-              </div>
+          <div className="modal" style={{ maxWidth: 340 }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 14 }}>
+              <span style={{ fontWeight: 700, fontSize: 15 }}>{editDay}</span>
+              <button onClick={() => setEditDay(null)} style={{ background: 'none', border: 'none', color: 'var(--text3)', cursor: 'pointer', fontSize: 18, lineHeight: 1 }}>✕</button>
             </div>
+
+            {/* Day type grid — tap to instantly save for non-time types */}
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, marginBottom: 14 }}>
+              {DAY_TYPES.map(t => (
+                <button key={t.value} onClick={() => pickType(t.value)} disabled={saving}
+                  style={{ padding: '11px 8px', borderRadius: 10, border: `2px solid ${t.color}`, background: editForm.day_type === t.value ? t.color : 'transparent', color: editForm.day_type === t.value ? '#fff' : t.color, fontSize: 13, fontWeight: 700, cursor: 'pointer' }}>
+                  {t.label}
+                </button>
+              ))}
+            </div>
+
+            {/* Shift times — only for Normal / OT */}
             {(editForm.day_type === 'normal' || editForm.day_type === 'OT') && (
-              <div className="form-row">
-                <div className="form-group"><label className="form-label">Shift Start</label>
-                  <input type="time" className="form-input" value={editForm.shift_start} onChange={e => setEditForm(f => ({ ...f, shift_start: e.target.value }))} /></div>
-                <div className="form-group"><label className="form-label">Shift End</label>
-                  <input type="time" className="form-input" value={editForm.shift_end} onChange={e => setEditForm(f => ({ ...f, shift_end: e.target.value }))} /></div>
-              </div>
+              <>
+                <div className="form-row">
+                  <div className="form-group">
+                    <label className="form-label">Start</label>
+                    <input type="time" className="form-input" value={editForm.shift_start} onChange={e => setEditForm(f => ({ ...f, shift_start: e.target.value }))} />
+                  </div>
+                  <div className="form-group">
+                    <label className="form-label">End</label>
+                    <input type="time" className="form-input" value={editForm.shift_end} onChange={e => setEditForm(f => ({ ...f, shift_end: e.target.value }))} />
+                  </div>
+                </div>
+                <button className="btn btn-primary" style={{ width: '100%', marginTop: 4 }} onClick={() => { saveDay(editForm); setEditDay(null); }} disabled={saving}>
+                  {saving ? 'Saving...' : 'Done'}
+                </button>
+              </>
             )}
-            <div className="form-group"><label className="form-label">Notes (optional)</label>
-              <input className="form-input" placeholder="e.g. Cover shift, special event..." value={editForm.notes} onChange={e => setEditForm(f => ({ ...f, notes: e.target.value }))} /></div>
-            <div className="modal-footer">
-              <button className="btn btn-ghost" onClick={() => setEditDay(null)}>Cancel</button>
-              <button className="btn btn-primary" onClick={saveEdit} disabled={saving}>{saving ? 'Saving...' : 'Save'}</button>
-            </div>
           </div>
         </div>
       )}

@@ -69,7 +69,7 @@ export default function OEDashboard() {
     try {
       const loc = await getLocation();
       setStatus('Checking out...');
-      await api.post('/api/oe/checkout', loc);
+      await api.post('/api/oe/checkout', { ...loc, device_fingerprint: deviceFP });
       setStatus('');
       await load();
     } catch (e) {
