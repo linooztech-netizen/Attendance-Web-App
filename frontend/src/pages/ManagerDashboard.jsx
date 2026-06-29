@@ -387,77 +387,170 @@ function DeviceRequests() {
   );
 }
 
-function Roster({ stores }) {
-  const today = new Date().toISOString().split('T')[0];
-  const [date, setDate] = useState(today);
+const DAY_TYPES = [
+  { value: 'normal', label: 'Normal', color: '#f97316' },
+  { value: 'OT', label: 'OT', color: '#f59e0b' },
+  { value: 'weekoff', label: 'Week Off', color: '#3b82f6' },
+  { value: 'compoff', label: 'Comp Off', color: '#8b5cf6' },
+  { value: 'annual_leave', label: 'Annual Leave', color: '#22c55e' },
+  { value: 'sick_leave', label: 'Sick Leave', color: '#ef4444' },
+];
+
+function Roster() {
+  const now = new Date();
+  const [year, setYear] = useState(now.getFullYear());
+  const [month, setMonth] = useState(now.getMonth());
   const [oes, setOes] = useState([]);
-  const [saving, setSaving] = useState({});
-  const [forms, setForms] = useState({});
+  const [selectedOE, setSelectedOE] = useState('');
+  const [rosterMap, setRosterMap] = useState({});
+  const [editDay, setEditDay] = useState(null);
+  const [editForm, setEditForm] = useState({});
+  const [saving, setSaving] = useState(false);
   const [success, setSuccess] = useState('');
+
+  const MONTHS = ['January','February','March','April','May','June','July','August','September','October','November','December'];
+  const DOW = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
+  const todayStr = now.toLocaleDateString('en-CA');
 
   useEffect(() => { api.get('/api/manager/oes').then(d => setOes(d || [])).catch(() => {}); }, []);
 
   const loadRoster = useCallback(async () => {
-    const data = await api.get(`/api/manager/roster?from=${date}&to=${date}`).catch(() => []);
-    const f = {};
-    (data || []).forEach(item => { f[item.oe_id] = { shift_start: item.shift_start || '', shift_end: item.shift_end || '', store_id: item.store_id || '', notes: item.notes || '' }; });
-    setForms(f);
-  }, [date]);
+    if (!selectedOE) return;
+    const from = `${year}-${String(month+1).padStart(2,'0')}-01`;
+    const to = `${year}-${String(month+1).padStart(2,'0')}-${String(new Date(year,month+1,0).getDate()).padStart(2,'0')}`;
+    const data = await api.get(`/api/manager/roster?from=${from}&to=${to}&oe_id=${selectedOE}`).catch(() => []);
+    const map = {};
+    (data || []).forEach(r => { map[r.date] = r; });
+    setRosterMap(map);
+  }, [selectedOE, year, month]);
 
   useEffect(() => { loadRoster(); }, [loadRoster]);
 
-  function getForm(id) { return forms[id] || { shift_start: '', shift_end: '', store_id: '', notes: '' }; }
-  function updateForm(id, key, val) { setForms(f => ({ ...f, [id]: { ...getForm(id), [key]: val } })); }
+  function dateStr(d) { return `${year}-${String(month+1).padStart(2,'0')}-${String(d).padStart(2,'0')}`; }
 
-  async function saveRow(oeId) {
-    setSaving(s => ({ ...s, [oeId]: true }));
-    try {
-      const f = getForm(oeId);
-      await api.post('/api/manager/roster', { oe_id: oeId, date, ...f, store_id: f.store_id || null });
-      setSuccess('Saved'); setTimeout(() => setSuccess(''), 2000);
-    } catch (e) { alert(e.message); }
-    setSaving(s => ({ ...s, [oeId]: false }));
+  function buildCalendar() {
+    const days = [];
+    const firstDow = new Date(year, month, 1).getDay();
+    const totalDays = new Date(year, month+1, 0).getDate();
+    for (let i = 0; i < firstDow; i++) days.push(null);
+    for (let d = 1; d <= totalDays; d++) days.push(d);
+    while (days.length % 7 !== 0) days.push(null);
+    return days;
   }
+
+  function openEdit(d) {
+    const ds = dateStr(d);
+    const e = rosterMap[ds] || {};
+    setEditForm({ date: ds, shift_start: e.shift_start || '', shift_end: e.shift_end || '', day_type: e.day_type || 'normal', notes: e.notes || '' });
+    setEditDay(ds);
+  }
+
+  async function saveEdit() {
+    setSaving(true);
+    try {
+      await api.post('/api/manager/roster', { oe_id: selectedOE, date: editForm.date, shift_start: editForm.shift_start || null, shift_end: editForm.shift_end || null, day_type: editForm.day_type, notes: editForm.notes || null });
+      setEditDay(null); setSuccess('Saved'); setTimeout(() => setSuccess(''), 2000);
+      await loadRoster();
+    } catch (e) { alert(e.message); }
+    setSaving(false);
+  }
+
+  const calendar = buildCalendar();
+  const weeks = [];
+  for (let i = 0; i < calendar.length; i += 7) weeks.push(calendar.slice(i, i+7));
 
   return (
     <div>
       {success && <div className="alert alert-success">{success}</div>}
-      <div className="section-header">
-        <div className="section-title">Roster Management</div>
-        <div className="flex gap-2" style={{ alignItems: 'center' }}>
-          <label className="form-label" style={{ margin: 0 }}>Date:</label>
-          <input type="date" className="form-input" style={{ width: 160 }} value={date} onChange={e => setDate(e.target.value)} />
+      <div className="section-header" style={{ flexWrap: 'wrap', gap: 8, marginBottom: 16 }}>
+        <div className="section-title">Roster Calendar</div>
+        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+          <select className="form-input" style={{ width: 'auto' }} value={selectedOE} onChange={e => setSelectedOE(e.target.value)}>
+            <option value="">-- Select OE --</option>
+            {oes.filter(o => o.is_active).map(o => <option key={o.id} value={o.id}>{o.name}</option>)}
+          </select>
+          <select className="form-input" style={{ width: 'auto' }} value={month} onChange={e => setMonth(+e.target.value)}>
+            {MONTHS.map((m,i) => <option key={i} value={i}>{m}</option>)}
+          </select>
+          <select className="form-input" style={{ width: 'auto' }} value={year} onChange={e => setYear(+e.target.value)}>
+            {[2024,2025,2026,2027].map(y => <option key={y} value={y}>{y}</option>)}
+          </select>
         </div>
       </div>
-      <div className="card">
-        {oes.filter(o => o.is_active).length === 0
-          ? <p className="text-muted">No active OEs.</p>
-          : (
-            <div className="table-wrap">
-              <table>
-                <thead><tr><th>OE Name</th><th>Shift Start</th><th>Shift End</th><th>Store</th><th>Notes</th><th>Save</th></tr></thead>
-                <tbody>{oes.filter(o => o.is_active).map(o => {
-                  const f = getForm(o.id);
-                  return (
-                    <tr key={o.id}>
-                      <td className="primary">{o.name}</td>
-                      <td><input type="time" className="form-input" style={{ minWidth: 110 }} value={f.shift_start} onChange={e => updateForm(o.id, 'shift_start', e.target.value)} /></td>
-                      <td><input type="time" className="form-input" style={{ minWidth: 110 }} value={f.shift_end} onChange={e => updateForm(o.id, 'shift_end', e.target.value)} /></td>
-                      <td>
-                        <select className="form-input" style={{ minWidth: 120 }} value={f.store_id} onChange={e => updateForm(o.id, 'store_id', e.target.value)}>
-                          <option value="">Default</option>
-                          {stores.map(s => <option key={s.id} value={s.id}>{s.store_code}</option>)}
-                        </select>
-                      </td>
-                      <td><input className="form-input" placeholder="Notes..." value={f.notes} onChange={e => updateForm(o.id, 'notes', e.target.value)} /></td>
-                      <td><button className="btn btn-primary btn-sm" onClick={() => saveRow(o.id)} disabled={saving[o.id]}>Save</button></td>
-                    </tr>
-                  );
-                })}</tbody>
-              </table>
+
+      {!selectedOE
+        ? <div className="alert alert-info">Select an OE to view and manage their monthly roster.</div>
+        : <>
+            <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap', marginBottom: 12 }}>
+              {DAY_TYPES.map(t => (
+                <div key={t.value} style={{ display: 'flex', alignItems: 'center', gap: 5, fontSize: 11, fontWeight: 600 }}>
+                  <div style={{ width: 12, height: 12, borderRadius: 3, background: t.color }} />
+                  <span style={{ color: t.color }}>{t.label}</span>
+                </div>
+              ))}
             </div>
-          )}
-      </div>
+            <div className="card" style={{ padding: 0, overflow: 'hidden' }}>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7,1fr)', background: 'var(--bg3)', borderBottom: '1px solid var(--border)' }}>
+                {DOW.map(d => <div key={d} style={{ padding: '10px 4px', textAlign: 'center', fontSize: 11, fontWeight: 700, color: 'var(--text3)', textTransform: 'uppercase' }}>{d}</div>)}
+              </div>
+              {weeks.map((week, wi) => (
+                <div key={wi} style={{ display: 'grid', gridTemplateColumns: 'repeat(7,1fr)', borderBottom: wi < weeks.length-1 ? '1px solid var(--border)' : 'none' }}>
+                  {week.map((day, di) => {
+                    if (!day) return <div key={di} style={{ minHeight: 88, background: 'var(--bg3)', opacity: 0.4, borderRight: di < 6 ? '1px solid var(--border)' : 'none' }} />;
+                    const ds = dateStr(day);
+                    const entry = rosterMap[ds];
+                    const dt = DAY_TYPES.find(t => t.value === (entry?.day_type || 'normal'));
+                    const isToday = ds === todayStr;
+                    const hasMark = entry?.day_type && entry.day_type !== 'normal';
+                    return (
+                      <div key={di} onClick={() => openEdit(day)} style={{ minHeight: 88, borderRight: di < 6 ? '1px solid var(--border)' : 'none', padding: '6px 8px', cursor: 'pointer', background: hasMark ? `${dt.color}18` : 'transparent', transition: 'background 0.1s' }}>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 }}>
+                          <span style={{ fontSize: 13, fontWeight: 700, color: isToday ? '#f97316' : hasMark ? dt.color : 'var(--text)' }}>{day}</span>
+                          {isToday && <span style={{ fontSize: 8, background: '#f97316', color: '#fff', borderRadius: 3, padding: '1px 4px', fontWeight: 700 }}>TODAY</span>}
+                        </div>
+                        {entry?.shift_start && <div style={{ fontSize: 10, color: '#22c55e', lineHeight: 1.6 }}>▶ {entry.shift_start}</div>}
+                        {entry?.shift_end && <div style={{ fontSize: 10, color: '#f59e0b', lineHeight: 1.6 }}>■ {entry.shift_end}</div>}
+                        {hasMark && <div style={{ fontSize: 9, fontWeight: 700, color: dt.color, marginTop: 2, textTransform: 'uppercase', letterSpacing: '0.5px' }}>{dt.label}</div>}
+                      </div>
+                    );
+                  })}
+                </div>
+              ))}
+            </div>
+          </>
+      }
+
+      {editDay && (
+        <div className="modal-overlay" onClick={e => e.target === e.currentTarget && setEditDay(null)}>
+          <div className="modal" style={{ maxWidth: 400 }}>
+            <h3 className="modal-title">Set Roster — {editDay}</h3>
+            <div className="form-group">
+              <label className="form-label">Day Type</label>
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginTop: 6 }}>
+                {DAY_TYPES.map(t => (
+                  <button key={t.value} onClick={() => setEditForm(f => ({ ...f, day_type: t.value }))} style={{ padding: '6px 14px', borderRadius: 20, border: `2px solid ${t.color}`, background: editForm.day_type === t.value ? t.color : 'transparent', color: editForm.day_type === t.value ? '#fff' : t.color, fontSize: 12, fontWeight: 600, cursor: 'pointer', transition: 'all 0.15s' }}>
+                    {t.label}
+                  </button>
+                ))}
+              </div>
+            </div>
+            {(editForm.day_type === 'normal' || editForm.day_type === 'OT') && (
+              <div className="form-row">
+                <div className="form-group"><label className="form-label">Shift Start</label>
+                  <input type="time" className="form-input" value={editForm.shift_start} onChange={e => setEditForm(f => ({ ...f, shift_start: e.target.value }))} /></div>
+                <div className="form-group"><label className="form-label">Shift End</label>
+                  <input type="time" className="form-input" value={editForm.shift_end} onChange={e => setEditForm(f => ({ ...f, shift_end: e.target.value }))} /></div>
+              </div>
+            )}
+            <div className="form-group"><label className="form-label">Notes (optional)</label>
+              <input className="form-input" placeholder="e.g. Cover shift, special event..." value={editForm.notes} onChange={e => setEditForm(f => ({ ...f, notes: e.target.value }))} /></div>
+            <div className="modal-footer">
+              <button className="btn btn-ghost" onClick={() => setEditDay(null)}>Cancel</button>
+              <button className="btn btn-primary" onClick={saveEdit} disabled={saving}>{saving ? 'Saving...' : 'Save'}</button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
@@ -559,7 +652,7 @@ export default function ManagerDashboard() {
         </div>
         {tab === 'My OEs' && <MyOEs stores={stores} />}
         {tab === 'Stores' && <Stores onStoresChange={setStores} />}
-        {tab === 'Roster' && <Roster stores={stores} />}
+        {tab === 'Roster' && <Roster />}
         {tab === 'Device Requests' && <DeviceRequests />}
         {tab === 'Reports' && <ManagerReports oes={oes} />}
       </div>

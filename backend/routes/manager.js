@@ -126,11 +126,12 @@ router.delete('/stores/:id', async (req, res) => {
 // Roster
 router.get('/roster', async (req, res) => {
   try {
-    const { from, to } = req.query;
+    const { from, to, oe_id } = req.query;
     let q = `SELECT r.*, u.name AS oe_name, s.store_code FROM roster r JOIN users u ON u.id=r.oe_id LEFT JOIN stores s ON s.id=r.store_id WHERE u.manager_id=$1`;
     const params = [req.user.id];
-    if (from) { params.push(from); q += ` AND r.date >= $${params.length}`; }
-    if (to)   { params.push(to);   q += ` AND r.date <= $${params.length}`; }
+    if (oe_id) { params.push(oe_id); q += ` AND r.oe_id=$${params.length}`; }
+    if (from)  { params.push(from);  q += ` AND r.date >= $${params.length}`; }
+    if (to)    { params.push(to);    q += ` AND r.date <= $${params.length}`; }
     q += ' ORDER BY r.date, u.name';
     res.json(await db.all(q, params));
   } catch (e) { res.status(500).json({ error: e.message }); }
@@ -138,15 +139,15 @@ router.get('/roster', async (req, res) => {
 
 router.post('/roster', async (req, res) => {
   try {
-    const { oe_id, date, shift_start, shift_end, store_id, notes } = req.body;
+    const { oe_id, date, shift_start, shift_end, store_id, notes, day_type } = req.body;
     if (!oe_id || !date) return res.status(400).json({ error: 'OE and date required' });
     await db.run(`
-      INSERT INTO roster (oe_id,store_id,date,shift_start,shift_end,notes,created_by)
-      VALUES ($1,$2,$3,$4,$5,$6,$7)
+      INSERT INTO roster (oe_id,store_id,date,shift_start,shift_end,notes,day_type,created_by)
+      VALUES ($1,$2,$3,$4,$5,$6,$7,$8)
       ON CONFLICT (oe_id, date) DO UPDATE SET
         store_id=EXCLUDED.store_id, shift_start=EXCLUDED.shift_start,
-        shift_end=EXCLUDED.shift_end, notes=EXCLUDED.notes
-    `, [oe_id, store_id || null, date, shift_start || null, shift_end || null, notes || null, req.user.id]);
+        shift_end=EXCLUDED.shift_end, notes=EXCLUDED.notes, day_type=EXCLUDED.day_type
+    `, [oe_id, store_id || null, date, shift_start || null, shift_end || null, notes || null, day_type || 'normal', req.user.id]);
     res.json({ message: 'Roster saved' });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });

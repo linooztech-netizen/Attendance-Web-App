@@ -49,7 +49,27 @@ CREATE TABLE IF NOT EXISTS roster (
   shift_start TEXT,
   shift_end   TEXT,
   notes       TEXT,
+  day_type    TEXT DEFAULT 'normal',
   created_by  BIGINT REFERENCES users(id),
   created_at  TIMESTAMPTZ DEFAULT NOW(),
   UNIQUE (oe_id, date)
+);
+
+-- Migration: add day_type to existing roster table
+ALTER TABLE roster ADD COLUMN IF NOT EXISTS day_type TEXT DEFAULT 'normal';
+
+-- Migration: add device columns to users table
+ALTER TABLE users ADD COLUMN IF NOT EXISTS device_fingerprint TEXT;
+ALTER TABLE users ADD COLUMN IF NOT EXISTS device_name TEXT;
+
+-- Migration: device_requests table
+CREATE TABLE IF NOT EXISTS device_requests (
+  id                 BIGSERIAL PRIMARY KEY,
+  oe_id              BIGINT NOT NULL REFERENCES users(id),
+  device_fingerprint TEXT NOT NULL,
+  device_name        TEXT,
+  status             TEXT DEFAULT 'pending',
+  requested_at       TIMESTAMPTZ DEFAULT NOW(),
+  approved_by        BIGINT REFERENCES users(id),
+  approved_at        TIMESTAMPTZ
 );
