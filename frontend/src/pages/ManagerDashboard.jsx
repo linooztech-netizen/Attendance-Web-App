@@ -674,19 +674,40 @@ export default function ManagerDashboard() {
   const [tab, setTab] = useState('My OEs');
   const [stores, setStores] = useState([]);
   const [oes, setOes] = useState([]);
+  const [absentOEs, setAbsentOEs] = useState([]);
 
   useEffect(() => {
     api.get('/api/manager/stores').then(d => setStores(d || [])).catch(() => {});
     api.get('/api/manager/oes').then(d => setOes(d || [])).catch(() => {});
+    api.get('/api/manager/absent-today').then(d => setAbsentOEs(d || [])).catch(() => {});
   }, []);
 
   return (
     <div className="app">
       <Navbar user={user} onLogout={logout} />
       <div className="main">
+        {absentOEs.length > 0 && (
+          <div style={{ background: '#ef444415', border: '1px solid #ef4444', borderRadius: 8, padding: '12px 16px', marginBottom: 12 }}>
+            <div style={{ color: '#ef4444', fontWeight: 700, fontSize: 13, marginBottom: 8 }}>
+              Absent Today — {absentOEs.length} OE{absentOEs.length > 1 ? 's' : ''} rostered but not checked in
+            </div>
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
+              {absentOEs.map(o => (
+                <span key={o.id} style={{ background: '#ef444425', color: '#ef4444', border: '1px solid #ef444460', borderRadius: 12, padding: '4px 12px', fontSize: 12, fontWeight: 600 }}>
+                  {o.name}{o.shift_start ? ` · Shift ${o.shift_start}` : ''}{o.store_code ? ` · ${o.store_code}` : ''}
+                </span>
+              ))}
+            </div>
+          </div>
+        )}
         <div className="tabs">
           {TABS.map(t => (
-            <button key={t} className={`tab ${tab === t ? 'active' : ''}`} onClick={() => setTab(t)}>{t}</button>
+            <button key={t} className={`tab ${tab === t ? 'active' : ''}`} onClick={() => setTab(t)}>
+              {t}
+              {t === 'My OEs' && absentOEs.length > 0 && (
+                <span style={{ marginLeft: 6, background: '#ef4444', color: '#fff', borderRadius: 10, padding: '1px 6px', fontSize: 10, fontWeight: 700 }}>{absentOEs.length}</span>
+              )}
+            </button>
           ))}
         </div>
         {tab === 'My OEs' && <MyOEs stores={stores} />}

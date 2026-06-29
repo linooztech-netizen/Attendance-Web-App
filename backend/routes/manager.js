@@ -194,6 +194,27 @@ router.put('/device-requests/:id', async (req, res) => {
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
+// Absent today (rostered but not checked in)
+router.get('/absent-today', async (req, res) => {
+  try {
+    const today = new Date().toLocaleDateString('en-CA');
+    const rows = await db.all(`
+      SELECT u.id, u.name, r.shift_start, r.shift_end, r.day_type, s.store_code
+      FROM roster r
+      JOIN users u ON u.id = r.oe_id
+      LEFT JOIN stores s ON s.id = u.store_id
+      LEFT JOIN attendance a ON a.user_id = r.oe_id AND a.date = $2
+      WHERE u.manager_id = $1
+        AND r.date = $2
+        AND r.day_type IN ('normal', 'OT')
+        AND u.is_active = 1
+        AND a.id IS NULL
+      ORDER BY r.shift_start NULLS LAST, u.name
+    `, [req.user.id, today]);
+    res.json(rows);
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
 // Attendance
 router.get('/attendance', async (req, res) => {
   try {

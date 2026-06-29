@@ -43,6 +43,12 @@ function Modal({ title, onClose, children }) {
 
 // ── OVERVIEW ──────────────────────────────────────────────────────────────────
 function Overview({ stats }) {
+  const [absentOEs, setAbsentOEs] = useState([]);
+
+  useEffect(() => {
+    api.get('/api/admin/absent-today').then(d => setAbsentOEs(d || [])).catch(() => {});
+  }, []);
+
   if (!stats) return <p className="text-muted">Loading...</p>;
   return (
     <div>
@@ -52,7 +58,40 @@ function Overview({ stats }) {
         <div className="stat-card"><div className="stat-value">{stats.total_stores}</div><div className="stat-label">Stores</div></div>
         <div className="stat-card"><div className="stat-value" style={{ color: 'var(--green)' }}>{stats.today_checkins}</div><div className="stat-label">Today Check-Ins</div></div>
         <div className="stat-card"><div className="stat-value" style={{ color: 'var(--yellow)' }}>{stats.today_checkouts}</div><div className="stat-label">Today Check-Outs</div></div>
+        <div className="stat-card"><div className="stat-value" style={{ color: '#ef4444' }}>{absentOEs.length}</div><div className="stat-label">Absent Today</div></div>
       </div>
+
+      {absentOEs.length > 0 && (
+        <div style={{ background: '#ef444415', border: '1px solid #ef4444', borderRadius: 8, padding: '14px 16px', marginTop: 20 }}>
+          <div style={{ color: '#ef4444', fontWeight: 700, fontSize: 13, marginBottom: 10 }}>
+            Absent Today — rostered but not checked in
+          </div>
+          <div className="table-wrap">
+            <table>
+              <thead>
+                <tr><th>OE Name</th><th>Manager</th><th>Store</th><th>Scheduled Shift</th><th>Day Type</th></tr>
+              </thead>
+              <tbody>
+                {absentOEs.map(o => (
+                  <tr key={o.id}>
+                    <td className="primary" style={{ color: '#ef4444' }}>{o.name}</td>
+                    <td>{o.manager_name || '—'}</td>
+                    <td>{o.store_code || '—'}</td>
+                    <td>{o.shift_start && o.shift_end ? `${o.shift_start} – ${o.shift_end}` : o.shift_start || '—'}</td>
+                    <td><span style={{ textTransform: 'capitalize' }}>{o.day_type}</span></td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+
+      {absentOEs.length === 0 && stats.today_checkins > 0 && (
+        <div style={{ marginTop: 16, color: 'var(--green)', fontWeight: 600, fontSize: 13 }}>
+          All rostered OEs have checked in today.
+        </div>
+      )}
     </div>
   );
 }
