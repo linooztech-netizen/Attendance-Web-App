@@ -67,11 +67,14 @@ router.post('/checkin', async (req, res) => {
       });
     }
 
+    // Device verification
     if (device_fingerprint) {
       if (!user.device_fingerprint) {
+        // First login — register this device automatically
         await db.run('UPDATE users SET device_fingerprint=$1, device_name=$2 WHERE id=$3',
           [device_fingerprint, device_name || 'Unknown', req.user.id]);
       } else if (user.device_fingerprint !== device_fingerprint) {
+        // Different device — check for approved request
         const approved = await db.one(`
           SELECT * FROM device_requests
           WHERE oe_id=$1 AND device_fingerprint=$2 AND status='approved'
@@ -79,6 +82,7 @@ router.post('/checkin', async (req, res) => {
         `, [req.user.id, device_fingerprint]);
 
         if (!approved) {
+          // Check for existing pending request
           const pending = await db.one(`
             SELECT id FROM device_requests
             WHERE oe_id=$1 AND device_fingerprint=$2 AND status='pending'
@@ -95,6 +99,7 @@ router.post('/checkin', async (req, res) => {
           });
         }
 
+        // Approved — update primary device
         await db.run('UPDATE users SET device_fingerprint=$1, device_name=$2 WHERE id=$3',
           [device_fingerprint, device_name || 'Unknown', req.user.id]);
       }
