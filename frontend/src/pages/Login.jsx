@@ -50,7 +50,7 @@ export default function Login() {
               <path d="M50 90 C49 90 50 90 50 90" stroke="#f97316" strokeWidth="2" strokeLinecap="round" fill="none"/>
             </svg>
           </div>
-          <h1 style={{ color: '#f97316', fontSize: 22, fontWeight: 800, letterSpacing: 0.5 }}>Employee Attendance</h1>
+          <h1 style={{ color: '#f97316', fontSize: 22, fontWeight: 800, letterSpacing: 0.5 }}>SiteWatch</h1>
           <p style={{ color: '#666', marginTop: 6 }}>GPS Geofencing System · UAE</p>
         </div>
 

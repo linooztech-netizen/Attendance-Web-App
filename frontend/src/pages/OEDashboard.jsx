@@ -101,7 +101,7 @@ export default function OEDashboard() {
             <path d="M50 104 C43 104 38 99 38 94 C38 89 43 84 50 84" stroke="#f97316" strokeWidth="4" strokeLinecap="round" fill="none"/>
             <path d="M50 98 C45 98 42 96 42 94 C42 92 45 90 50 90" stroke="#f97316" strokeWidth="4" strokeLinecap="round" fill="none"/>
           </svg>
-          Employee <span>Attendance</span>
+          Site<span>Watch</span>
         </div>
         <div className="navbar-right">
           <span className="navbar-user">{user?.name}</span>

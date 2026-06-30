@@ -13,7 +13,7 @@ async function request(method, path, body) {
     body: body != null ? JSON.stringify(body) : undefined
   });
 
-  if (res.status === 401) {
+  if (res.status === 401 && token) {
     localStorage.clear();
     window.location.href = '/';
     return;

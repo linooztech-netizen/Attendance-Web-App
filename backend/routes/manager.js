@@ -12,6 +12,65 @@ function buildSet(obj) {
   return { sets, values: keys.map(k => obj[k]) };
 }
 
+function timeToMinutes(t) {
+  if (!t) return null;
+  const [h, m] = t.split(':').map(Number);
+  return h * 60 + m;
+}
+
+// Computes No Roster / Absent / Late / Miss Punch counts for today across a set of OEs
+async function computeOeStats(oeIds, today) {
+  if (!oeIds.length) return { no_roster: 0, absent: 0, late: 0, miss_punch: 0 };
+  const placeholders = oeIds.map((_, i) => `$${i + 2}`).join(',');
+  const [rosterRows, attRows] = await Promise.all([
+    db.all(`SELECT * FROM roster WHERE date=$1 AND oe_id IN (${placeholders})`, [today, ...oeIds]),
+    db.all(`SELECT * FROM attendance WHERE date=$1 AND user_id IN (${placeholders}) ORDER BY check_in_time`, [today, ...oeIds]),
+  ]);
+
+  const rosterByOe = {};
+  rosterRows.forEach(r => { rosterByOe[r.oe_id] = r; });
+  const attByOe = {};
+  attRows.forEach(a => { (attByOe[a.user_id] = attByOe[a.user_id] || []).push(a); });
+
+  const now = new Date();
+  const nowMinutes = now.getHours() * 60 + now.getMinutes();
+  const GRACE_MIN = 15;
+
+  let no_roster = 0, absent = 0, late = 0, miss_punch = 0;
+
+  oeIds.forEach(id => {
+    const roster = rosterByOe[id];
+    if (!roster) { no_roster++; return; }
+    if (!['normal', 'OT'].includes(roster.day_type)) return;
+
+    const visits = attByOe[id] || [];
+    if (visits.length === 0) { absent++; return; }
+
+    const firstCheckIn = visits[0];
+    const shiftStartMin = timeToMinutes(roster.shift_start);
+    if (shiftStartMin != null && firstCheckIn.check_in_time) {
+      const ci = new Date(firstCheckIn.check_in_time);
+      const ciMin = ci.getHours() * 60 + ci.getMinutes();
+      if (ciMin > shiftStartMin + GRACE_MIN) late++;
+    }
+
+    const shiftEndMin = timeToMinutes(roster.shift_end);
+    const hasOpenVisit = visits.some(v => v.check_in_time && !v.check_out_time);
+    if (hasOpenVisit && shiftEndMin != null && nowMinutes > shiftEndMin + GRACE_MIN) miss_punch++;
+  });
+
+  return { no_roster, absent, late, miss_punch };
+}
+
+router.get('/oe-stats', async (req, res) => {
+  try {
+    const mid = req.user.role === 'admin' && req.query.manager_id ? req.query.manager_id : req.user.id;
+    const today = new Date().toLocaleDateString('en-CA');
+    const oes = await db.all("SELECT id FROM users WHERE role='oe' AND is_active=1 AND manager_id=$1", [mid]);
+    res.json(await computeOeStats(oes.map(o => o.id), today));
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
 // OEs
 router.get('/oes', async (req, res) => {
   try {

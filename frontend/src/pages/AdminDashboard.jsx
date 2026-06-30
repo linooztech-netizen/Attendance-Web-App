@@ -19,7 +19,7 @@ function Navbar({ user, onLogout }) {
           <path d="M50 104 C43 104 38 99 38 94 C38 89 43 84 50 84" stroke="#f97316" strokeWidth="4" strokeLinecap="round" fill="none"/>
           <path d="M50 98 C45 98 42 96 42 94 C42 92 45 90 50 90" stroke="#f97316" strokeWidth="4" strokeLinecap="round" fill="none"/>
         </svg>
-        Employee <span>Attendance</span>
+        Site<span>Watch</span>
       </div>
       <div className="navbar-right">
         <span className="navbar-user">{user.name}</span>
@@ -59,6 +59,9 @@ function Overview({ stats }) {
         <div className="stat-card"><div className="stat-value" style={{ color: 'var(--green)' }}>{stats.today_checkins}</div><div className="stat-label">Today Check-Ins</div></div>
         <div className="stat-card"><div className="stat-value" style={{ color: 'var(--yellow)' }}>{stats.today_checkouts}</div><div className="stat-label">Today Check-Outs</div></div>
         <div className="stat-card"><div className="stat-value" style={{ color: '#ef4444' }}>{absentOEs.length}</div><div className="stat-label">Absent Today</div></div>
+        <div className="stat-card"><div className="stat-value" style={{ color: '#a855f7' }}>{stats.no_roster ?? 0}</div><div className="stat-label">No Roster Today</div></div>
+        <div className="stat-card"><div className="stat-value" style={{ color: '#f59e0b' }}>{stats.late ?? 0}</div><div className="stat-label">Late Today</div></div>
+        <div className="stat-card"><div className="stat-value" style={{ color: '#ef4444' }}>{stats.miss_punch ?? 0}</div><div className="stat-label">Miss Punch</div></div>
       </div>
 
       {absentOEs.length > 0 && (

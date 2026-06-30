@@ -1,6 +1,6 @@
 {
-  "name": "Employee Attendance",
-  "short_name": "Attendance",
+  "name": "SiteWatch",
+  "short_name": "SiteWatch",
   "description": "GPS Geofencing Employee Attendance System · UAE",
   "start_url": "/",
   "scope": "/",

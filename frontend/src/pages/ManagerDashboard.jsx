@@ -1,7 +1,8 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { useAuth } from '../context/AuthContext';
 import { api } from '../api';
 import MapPicker from '../components/MapPicker';
+import * as XLSX from 'xlsx';
 
 function Navbar({ user, onLogout }) {
   return (
@@ -20,7 +21,7 @@ function Navbar({ user, onLogout }) {
           <path d="M50 104 C43 104 38 99 38 94 C38 89 43 84 50 84" stroke="#f97316" strokeWidth="4" strokeLinecap="round" fill="none"/>
           <path d="M50 98 C45 98 42 96 42 94 C42 92 45 90 50 90" stroke="#f97316" strokeWidth="4" strokeLinecap="round" fill="none"/>
         </svg>
-        Employee <span>Attendance</span>
+        Site<span>Watch</span>
       </div>
       <div className="navbar-right">
         <span className="navbar-user">{user.name}</span>
@@ -467,6 +468,9 @@ function Roster() {
   const [saving, setSaving] = useState(false);
   const [success, setSuccess] = useState('');
   const [applying, setApplying] = useState(false);
+  const [uploading, setUploading] = useState(false);
+  const [uploadMsg, setUploadMsg] = useState(null);
+  const fileInputRef = useRef(null);
   const [template, setTemplate] = useState(() =>
     DOW_NAMES.reduce((acc, _, i) => {
       acc[i] = { day_type: (i === 0 || i === 6) ? 'weekoff' : 'normal', shift_start: '', shift_end: '' };
@@ -557,6 +561,69 @@ function Roster() {
     setApplying(false);
   }
 
+  function downloadTemplate() {
+    const totalDays = new Date(year, month+1, 0).getDate();
+    const rows = [];
+    for (let d = 1; d <= totalDays; d++) {
+      rows.push({ 'OE Email': '', 'Date': dateStr(d), 'Day Type': 'normal', 'Shift Start': '09:00', 'Shift End': '18:00' });
+    }
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(rows), 'Roster');
+    const oeRef = oes.filter(o => o.is_active).map(o => ({ 'OE Name': o.name, 'OE Email': o.email }));
+    XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(oeRef), 'OE List');
+    const typeRef = DAY_TYPES.map(t => ({ 'Day Type Value': t.value, 'Meaning': t.label }));
+    XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(typeRef), 'Day Types');
+    XLSX.writeFile(wb, `roster_template_${MONTHS[month]}_${year}.xlsx`);
+  }
+
+  async function handleFileUpload(e) {
+    const file = e.target.files[0];
+    if (!file) return;
+    setUploading(true);
+    setUploadMsg(null);
+    try {
+      const buf = await file.arrayBuffer();
+      const wb = XLSX.read(buf, { type: 'array' });
+      const sheet = wb.Sheets[wb.SheetNames[0]];
+      const rows = XLSX.utils.sheet_to_json(sheet, { defval: '' });
+
+      const emailToOE = {};
+      oes.forEach(o => { emailToOE[String(o.email || '').toLowerCase().trim()] = o; });
+      const validTypes = DAY_TYPES.map(t => t.value);
+      const dateRe = /^\d{4}-\d{2}-\d{2}$/;
+
+      const saves = [];
+      const errors = [];
+      rows.forEach((row, i) => {
+        const email = String(row['OE Email'] || '').toLowerCase().trim();
+        const date = String(row['Date'] || '').trim();
+        let dayType = String(row['Day Type'] || 'normal').trim();
+        const shiftStart = String(row['Shift Start'] || '').trim();
+        const shiftEnd = String(row['Shift End'] || '').trim();
+
+        const oe = emailToOE[email];
+        if (!oe) { errors.push(`Row ${i+2}: unknown OE email "${row['OE Email']}"`); return; }
+        if (!dateRe.test(date)) { errors.push(`Row ${i+2}: invalid date "${row['Date']}" (use YYYY-MM-DD)`); return; }
+        if (!validTypes.includes(dayType)) dayType = 'normal';
+
+        saves.push(api.post('/api/manager/roster', {
+          oe_id: oe.id, date,
+          day_type: dayType,
+          shift_start: (dayType === 'normal' || dayType === 'OT') ? (shiftStart || null) : null,
+          shift_end:   (dayType === 'normal' || dayType === 'OT') ? (shiftEnd   || null) : null,
+        }));
+      });
+
+      await Promise.all(saves);
+      setUploadMsg({ type: 'success', text: `${saves.length} roster entries updated.${errors.length ? ` ${errors.length} rows skipped.` : ''}` , errors });
+      if (selectedOE) await loadRoster();
+    } catch (err) {
+      setUploadMsg({ type: 'error', text: 'Could not read file: ' + err.message, errors: [] });
+    }
+    setUploading(false);
+    if (fileInputRef.current) fileInputRef.current.value = '';
+  }
+
   const calendar = buildCalendar();
   const weeks = [];
   for (let i = 0; i < calendar.length; i += 7) weeks.push(calendar.slice(i, i+7));
@@ -577,6 +644,29 @@ function Roster() {
         <select className="form-input" style={{ width: 'auto' }} value={year} onChange={e => setYear(+e.target.value)}>
           {[2024,2025,2026,2027].map(y => <option key={y} value={y}>{y}</option>)}
         </select>
+      </div>
+
+      {/* Excel bulk upload */}
+      <div className="card" style={{ marginBottom: 12, padding: '14px 16px' }}>
+        <div style={{ fontWeight: 700, fontSize: 13, marginBottom: 8, color: 'var(--orange)' }}>Bulk Upload via Excel</div>
+        <div className="text-muted text-sm" style={{ marginBottom: 10 }}>Download the template, fill in OE Email / Date / Day Type / Shift times, then upload it back. Works for multiple OEs at once.</div>
+        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+          <button className="btn btn-ghost btn-sm" onClick={downloadTemplate}>⬇ Download Template ({MONTHS[month]} {year})</button>
+          <button className="btn btn-primary btn-sm" onClick={() => fileInputRef.current?.click()} disabled={uploading}>
+            {uploading ? 'Uploading...' : '⬆ Upload Excel File'}
+          </button>
+          <input ref={fileInputRef} type="file" accept=".xlsx,.xls,.csv" style={{ display: 'none' }} onChange={handleFileUpload} />
+        </div>
+        {uploadMsg && (
+          <div className={`alert ${uploadMsg.type === 'error' ? 'alert-error' : 'alert-success'}`} style={{ marginTop: 10 }}>
+            {uploadMsg.text}
+            {uploadMsg.errors?.length > 0 && (
+              <ul style={{ margin: '6px 0 0', paddingLeft: 18, fontSize: 12 }}>
+                {uploadMsg.errors.slice(0, 10).map((e, i) => <li key={i}>{e}</li>)}
+              </ul>
+            )}
+          </div>
+        )}
       </div>
 
       {!selectedOE
@@ -764,17 +854,27 @@ export default function ManagerDashboard() {
   const [stores, setStores] = useState([]);
   const [oes, setOes] = useState([]);
   const [absentOEs, setAbsentOEs] = useState([]);
+  const [oeStats, setOeStats] = useState(null);
 
   useEffect(() => {
     api.get('/api/manager/stores').then(d => setStores(d || [])).catch(() => {});
     api.get('/api/manager/oes').then(d => setOes(d || [])).catch(() => {});
     api.get('/api/manager/absent-today').then(d => setAbsentOEs(d || [])).catch(() => {});
+    api.get('/api/manager/oe-stats').then(setOeStats).catch(() => {});
   }, []);
 
   return (
     <div className="app">
       <Navbar user={user} onLogout={logout} />
       <div className="main">
+        {oeStats && (
+          <div className="stats-row" style={{ marginBottom: 12 }}>
+            <div className="stat-card"><div className="stat-value" style={{ color: '#ef4444' }}>{oeStats.absent}</div><div className="stat-label">Absent Today</div></div>
+            <div className="stat-card"><div className="stat-value" style={{ color: '#a855f7' }}>{oeStats.no_roster}</div><div className="stat-label">No Roster Today</div></div>
+            <div className="stat-card"><div className="stat-value" style={{ color: '#f59e0b' }}>{oeStats.late}</div><div className="stat-label">Late Today</div></div>
+            <div className="stat-card"><div className="stat-value" style={{ color: '#ef4444' }}>{oeStats.miss_punch}</div><div className="stat-label">Miss Punch</div></div>
+          </div>
+        )}
         {absentOEs.length > 0 && (
           <div style={{ background: '#ef444415', border: '1px solid #ef4444', borderRadius: 8, padding: '12px 16px', marginBottom: 12 }}>
             <div style={{ color: '#ef4444', fontWeight: 700, fontSize: 13, marginBottom: 8 }}>
